@@ -34,6 +34,74 @@
 #include "spdk/nvme_csd.h"
 #include "nvme_internal.h"
 
+#define CTRLR_STRING(ctrlr) \
+	((ctrlr->trid.trtype == SPDK_NVME_TRANSPORT_TCP || ctrlr->trid.trtype == SPDK_NVME_TRANSPORT_RDMA) ? \
+	ctrlr->trid.subnqn : ctrlr->trid.traddr)
+
+#define NVME_CTRLR_CSD_ERRLOG(ctrlr, format, ...) \
+	SPDK_ERRLOG("[%s] " format, CTRLR_STRING(ctrlr), ##__VA_ARGS__);
+
+static int 
+spdk_nvme_csd_ctrlr_load_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 uint32_t size, void *payload,
+				 bool unload, uint8_t program_type, uint16_t program_slot,
+				 spdk_nvme_cmd_cb cb_fn, void *cb_arg);
+
+
+int
+spdk_nvme_csd_ctrlr_load_program(struct spdk_nvme_ctrlr *ctrlr, void *payload, uint32_t size,
+				int slot, struct spdk_nvme_status *completion_status)
+{
+	struct nvme_completion_poll_status	*status;
+	int					res;
+
+	if (!completion_status) {
+		return -EINVAL;
+	}
+	memset(completion_status, 0, sizeof(struct spdk_nvme_status));
+	if (size % 4) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "spdk_nvme_ctrlr_csd_load_program invalid size!\n");
+		return -1;
+	}
+
+	status = calloc(1, sizeof(*status));
+	if (!status) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Failed to allocate status tracker\n");
+		return -ENOMEM;
+	}
+
+	if (size > ctrlr->min_page_size)
+	{
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Program size bigger than MIN page size\n");
+		return -ENOMEM;
+	}
+
+	if (size > 0xFFFFFFFF)
+	{
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Program size bigger than 0xFFFFFFFF\n");
+		return -ENOMEM;
+	}
+
+	memset(status, 0, sizeof(*status));
+	res = spdk_nvme_csd_ctrlr_load_program_cmd(ctrlr, size, payload,
+							1, 2, slot,
+							nvme_completion_poll_cb, status);
+	if (res) {
+		free(status);
+		return res;
+	}
+
+	if (nvme_wait_for_completion_robust_lock(ctrlr->adminq, status, &ctrlr->ctrlr_lock)) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "spdk_nvme_ctrlr_csd_load_program failed!\n");
+		if (!status->timed_out) {
+			free(status);
+		}
+		return -ENXIO;
+	}
+	
+	return spdk_nvme_ctrlr_reset(ctrlr);
+}
+
 void spdk_nvme_csd_ctrlr_program_activate(void)
 {
 }
@@ -42,8 +110,34 @@ void spdk_nvme_csd_ctrlr_execute_program(void)
 {
 }
 
-void spdk_nvme_csd_ctrlr_load_program(void)
+static int 
+spdk_nvme_csd_ctrlr_load_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 uint32_t size, void *payload,
+				 bool unload, uint8_t program_type, uint16_t program_slot,
+				 spdk_nvme_cmd_cb cb_fn, void *cb_arg)
 {
+	struct nvme_request *req;
+	struct spdk_nvme_cmd *cmd;
+	int rc;
+
+	nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
+	req = nvme_allocate_request_user_copy(ctrlr->adminq, payload, size, cb_fn, cb_arg, true);
+	if (req == NULL) {
+		nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+		return -ENOMEM;
+	}
+
+	cmd = &req->cmd;
+	cmd->opc = SPDK_CSD_OPC_LOAD_PROGRAM;
+	cmd->cdw10_bits.csd_load_program.unl = unload;
+	cmd->cdw10_bits.csd_load_program.ptype = program_type;
+	cmd->cdw10_bits.csd_load_program.pslot = program_slot;
+	cmd->cdw11 = size;
+
+	rc = nvme_ctrlr_submit_admin_request(ctrlr, req);
+	nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+
+	return rc;
 }
 
 void spdk_nvme_csd_ctrlr_create_memory_range_set(void)

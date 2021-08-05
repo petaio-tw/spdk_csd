@@ -50,7 +50,9 @@ extern "C" {
 
 void spdk_nvme_csd_ctrlr_program_activate(void);
 void spdk_nvme_csd_ctrlr_execute_program(void);
-void spdk_nvme_csd_ctrlr_load_program(void);
+int
+spdk_nvme_csd_ctrlr_load_program(struct spdk_nvme_ctrlr *ctrlr, void *payload, uint32_t size,
+				int slot, struct spdk_nvme_status *completion_status);
 void spdk_nvme_csd_ctrlr_create_memory_range_set(void);
 void spdk_nvme_csd_ctrlr_delete_memory_range_set(void);
 

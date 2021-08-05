@@ -39,6 +39,8 @@
 #include "spdk/util.h"
 #include "spdk/opal.h"
 
+#include "spdk/nvme_csd.h"
+
 #define MAX_DEVS 64
 #define MAX_SHELL_CMD_DESC_STR		100
 
@@ -82,7 +84,6 @@ struct shell_content {
 	char			desc[MAX_SHELL_CMD_DESC_STR];
 };
 
-static void dummy_function(int i);
 static void shell_cmd_quit(int i);
 static void nvme_csd_program_activation(int i);
 static void nvme_csd_execute_program(int i);
@@ -92,18 +93,14 @@ static void nvme_csd_delete_memory_range_set(int i);
 
 struct shell_content g_shell_content[SHELL_CMD_MAX] = 
 {
-	{dummy_function, "SHELL_CMD_PROGRAM_ACTIVATION"},
-	{dummy_function, "SHELL_CMD_EXECUTE_PROGRAM"},
-	{dummy_function, "SHELL_CMD_LOAD_PROGRAM"},
-	{dummy_function, "SHELL_CMD_CREATE_MEMORY_RANGE_SET"},
-	{dummy_function, "SHELL_CMD_DELETE_MEMORY_RANGE_SET"},
-	{shell_cmd_quit, "SHELL_CMD_QUIT"},
+	{nvme_csd_program_activation,		"SHELL_CMD_PROGRAM_ACTIVATION"},
+	{nvme_csd_execute_program,		"SHELL_CMD_EXECUTE_PROGRAM"},
+	{nvme_csd_load_program,			"SHELL_CMD_LOAD_PROGRAM"},
+	{nvme_csd_create_memory_range_set,	"SHELL_CMD_CREATE_MEMORY_RANGE_SET"},
+	{nvme_csd_delete_memory_range_set,	"SHELL_CMD_DELETE_MEMORY_RANGE_SET"},
+	{shell_cmd_quit,			"SHELL_CMD_QUIT"},
 };
 
-static void dummy_function(int i)
-{
-	printf("dummy function[%d] %s\r\n", i, g_shell_content[i].desc);
-}
 static void shell_cmd_quit(int i)
 {
 	g_exit_flag = true;
@@ -189,32 +186,6 @@ static void usage(void)
 	}
 }
 
-static void nvme_csd_program_activation(int i)
-{
-	spdk_nvme_csd_ctrlr_program_activate();
-}
-
-static void nvme_csd_execute_program(int i)
-{
-	spdk_nvme_csd_ctrlr_execute_program();
-}
-
-static void nvme_csd_load_program(int i)
-{
-	spdk_nvme_csd_ctrlr_load_program();
-}
-
-static void nvme_csd_create_memory_range_set(int i)
-{
-	spdk_nvme_csd_ctrlr_create_memory_range_set();
-}
-
-static void nvme_csd_delete_memory_range_set(int i)
-{
-	spdk_nvme_csd_ctrlr_delete_memory_range_set();
-}
-
-#if 0
 static void
 display_namespace_dpc(const struct spdk_nvme_ns_data *nsdata)
 {
@@ -343,7 +314,7 @@ display_controller(struct dev *dev, int model)
 		display_namespace(ns);
 	}
 }
-
+#if 0
 static void
 display_controller_list(void)
 {
@@ -353,7 +324,7 @@ display_controller_list(void)
 		display_controller(iter, CONTROLLER_DISPLAY_ALL);
 	}
 }
-
+#endif
 static char *
 get_line(char *buf, int buf_size, FILE *f, bool secret)
 {
@@ -433,7 +404,7 @@ get_controller(void)
 	}
 	return NULL;
 }
-
+#if 0
 static int
 get_lba_format(const struct spdk_nvme_ns_data *ns_data)
 {
@@ -1679,6 +1650,104 @@ parse_args(int argc, char **argv)
 	}
 
 	return 0;
+}
+
+static void nvme_csd_program_activation(int i)
+{
+	spdk_nvme_csd_ctrlr_program_activate();
+}
+
+static void nvme_csd_execute_program(int i)
+{
+	spdk_nvme_csd_ctrlr_execute_program();
+}
+
+static void nvme_csd_load_program(int i)
+{
+	int					rc;
+	int					fd = -1;
+	int					slot;
+	unsigned int				size;
+	struct stat				fw_stat;
+	char					path[256];
+	void					*fw_image;
+	struct dev				*ctrlr;
+	struct spdk_nvme_status			status;
+
+	ctrlr = get_controller();
+	if (ctrlr == NULL) {
+		printf("Invalid controller PCI BDF.\n");
+		return;
+	}
+
+	printf("Please Input The Path Of Firmware Image\n");
+
+	if (get_line(path, sizeof(path), stdin, false) == NULL) {
+		printf("Invalid path setting\n");
+		while (getchar() != '\n');
+		return;
+	}
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		perror("Open file failed");
+		return;
+	}
+	rc = fstat(fd, &fw_stat);
+	if (rc < 0) {
+		printf("Fstat failed\n");
+		close(fd);
+		return;
+	}
+
+	if (fw_stat.st_size % 4) {
+		printf("Firmware image size is not multiple of 4\n");
+		close(fd);
+		return;
+	}
+	
+	size = fw_stat.st_size;
+
+	fw_image = spdk_dma_zmalloc(size, 4096, NULL);
+	if (fw_image == NULL) {
+		printf("Allocation error\n");
+		close(fd);
+		return;
+	}
+
+	if (read(fd, fw_image, size) != ((ssize_t)(size))) {
+		printf("Read firmware image failed\n");
+		close(fd);
+		spdk_dma_free(fw_image);
+		return;
+	}
+	close(fd);
+
+	printf("Please Input Slot(0 - 3):\n");
+	if (!scanf("%d", &slot)) {
+		printf("Invalid Slot\n");
+		spdk_dma_free(fw_image);
+		while (getchar() != '\n');
+		return;
+	}
+
+	rc = spdk_nvme_csd_ctrlr_load_program(ctrlr->ctrlr, fw_image, size, slot, &status);
+	if (rc) {
+		printf("spdk_nvme_ctrlr_update_firmware failed\n");
+	} else {
+		printf("spdk_nvme_ctrlr_update_firmware success\n");
+	}
+	spdk_dma_free(fw_image);
+}
+
+static void nvme_csd_create_memory_range_set(int i)
+{
+	spdk_nvme_csd_ctrlr_create_memory_range_set();
+}
+
+static void nvme_csd_delete_memory_range_set(int i)
+{
+	spdk_nvme_csd_ctrlr_delete_memory_range_set();
 }
 
 int main(int argc, char **argv)

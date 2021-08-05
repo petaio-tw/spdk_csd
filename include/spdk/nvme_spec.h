@@ -1162,6 +1162,16 @@ union spdk_nvme_cmd_cdw10 {
 		uint32_t rtype     : 8;
 		uint32_t reserved2 : 16;
 	} resv_acquire;
+
+	struct {
+		uint32_t reserved  : 7;
+		/* Unload */
+		uint32_t unl       : 1;
+		/* Program Type */
+		uint32_t ptype     : 8;
+		/* Program Slot */
+		uint32_t pslot     : 16;
+	} csd_load_program;
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw10) == 4, "Incorrect size");
 
