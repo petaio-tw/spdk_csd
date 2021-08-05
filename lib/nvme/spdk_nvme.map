@@ -229,5 +229,12 @@
 	spdk_opal_get_locking_range_info;
 	spdk_opal_free_locking_range_info;
 
+	# public functions from nvme_csd.h
+	spdk_nvme_csd_ctrlr_program_activate;
+	spdk_nvme_csd_ctrlr_execute_program;
+	spdk_nvme_csd_ctrlr_load_program;
+	spdk_nvme_csd_ctrlr_create_memory_range_set;
+	spdk_nvme_csd_ctrlr_delete_memory_range_set;
+
 	local: *;
 };
