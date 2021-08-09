@@ -49,6 +49,8 @@ extern "C" {
 #include "spdk/assert.h"
 #include "spdk/nvme_spec.h"
 
+#define MAX_NUM_MEMORY_RANGE	170
+
 /**
  * CSD admin command set opcodes
  */
@@ -89,6 +91,14 @@ enum spdk_csd_command_specific_status_code {
 	SPDK_CSD_SC_PROGRAM_IDENTIFIER_IN_USE		= 0x3A,
 	SPDK_CSD_SC_PROGRAM_IDENTIFIER_NOT_AVAILABLE	= 0x3B,
 	SPDK_CSD_SC_PROGRAM_UNLOAD_NOT_ALLOWED		= 0x3C,
+};
+
+struct spdk_csd_memory_range_definition {
+	uint16_t memory_region_id;
+	uint16_t reserved;
+	uint32_t length;
+	uint64_t offset;
+	uint64_t attributes;
 };
 
 #ifdef __cplusplus

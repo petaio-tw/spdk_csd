@@ -48,13 +48,29 @@ extern "C" {
 #include "spdk/nvme.h"
 #include "spdk/nvme_csd_spec.h"
 
-void spdk_nvme_csd_ctrlr_program_activate(void);
-void spdk_nvme_csd_ctrlr_execute_program(void);
+int
+spdk_nvme_csd_ctrlr_program_activate(struct spdk_nvme_ctrlr *ctrlr, 
+					uint16_t ce_id, uint16_t p_id, uint8_t action,
+					struct spdk_nvme_status *completion_status);
+int
+spdk_nvme_csd_ctrlr_execute_program(struct spdk_nvme_ctrlr *ctrlr,
+				 uint16_t ce_id, uint16_t p_id, 
+				 uint16_t rs_id,
+				 void * d_ptr,
+				 void * c_param,
+				 struct spdk_nvme_status *completion_status);
 int
 spdk_nvme_csd_ctrlr_load_program(struct spdk_nvme_ctrlr *ctrlr, void *payload, uint32_t size,
-				int slot, struct spdk_nvme_status *completion_status);
-void spdk_nvme_csd_ctrlr_create_memory_range_set(void);
-void spdk_nvme_csd_ctrlr_delete_memory_range_set(void);
+				 bool unload, uint8_t program_type, uint16_t program_id,
+				 struct spdk_nvme_status *completion_status);
+int
+spdk_nvme_csd_ctrlr_create_memory_range_set(struct spdk_nvme_ctrlr *ctrlr, 
+						uint32_t nu_mr,
+						void *data,
+				 		struct spdk_nvme_status *completion_status);
+int spdk_nvme_csd_ctrlr_delete_memory_range_set(struct spdk_nvme_ctrlr *ctrlr, 
+				 		uint16_t rs_id,
+				 		struct spdk_nvme_status *completion_status);
 
 #ifdef __cplusplus
 }
