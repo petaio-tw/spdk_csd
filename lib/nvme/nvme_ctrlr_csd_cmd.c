@@ -41,16 +41,74 @@
 #define NVME_CTRLR_CSD_ERRLOG(ctrlr, format, ...) \
 	SPDK_ERRLOG("[%s] " format, CTRLR_STRING(ctrlr), ##__VA_ARGS__);
 
+static int
+spdk_nvme_csd_ctrlr_program_activate_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 	uint16_t ce_id, uint16_t p_id, uint8_t action,
+					spdk_nvme_cmd_cb cb_fn, void *cb_arg);
 static int 
 spdk_nvme_csd_ctrlr_load_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
 				 uint32_t size, void *payload,
-				 bool unload, uint8_t program_type, uint16_t program_slot,
+				 bool unload, uint8_t program_type, uint16_t program_id,
 				 spdk_nvme_cmd_cb cb_fn, void *cb_arg);
+static int 
+spdk_nvme_csd_ctrlr_execute_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 uint16_t ce_id, uint16_t p_id, 
+				 uint16_t rs_id,
+				 void * d_ptr,
+				 void * c_param,
+				 spdk_nvme_cmd_cb cb_fn, void *cb_arg);
+static int
+spdk_nvme_csd_ctrlr_create_memory_range_set_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 uint32_t nu_mr, void *data,
+				 spdk_nvme_cmd_cb cb_fn, void *cb_arg);
+static int
+spdk_nvme_csd_ctrlr_delete_memory_range_set_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 		uint16_t rs_id,
+						spdk_nvme_cmd_cb cb_fn, void *cb_arg);
 
+int
+spdk_nvme_csd_ctrlr_program_activate(struct spdk_nvme_ctrlr *ctrlr, 
+					uint16_t ce_id, uint16_t p_id, uint8_t action,
+					struct spdk_nvme_status *completion_status)
+{
+	struct nvme_completion_poll_status	*status;
+	int					res;
+
+	if (!completion_status) {
+		return -EINVAL;
+	}
+	memset(completion_status, 0, sizeof(struct spdk_nvme_status));
+
+	status = calloc(1, sizeof(*status));
+	if (!status) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Failed to allocate status tracker\n");
+		return -ENOMEM;
+	}
+
+	memset(status, 0, sizeof(*status));
+	res = spdk_nvme_csd_ctrlr_program_activate_cmd(ctrlr,
+							ce_id, p_id, action,
+							nvme_completion_poll_cb, status);
+	if (res) {
+		free(status);
+		return res;
+	}
+
+	if (nvme_wait_for_completion_robust_lock(ctrlr->adminq, status, &ctrlr->ctrlr_lock)) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "spdk_nvme_csd_ctrlr_program_activate failed!\n");
+		if (!status->timed_out) {
+			free(status);
+		}
+		return -ENXIO;
+	}
+	
+	return spdk_nvme_ctrlr_reset(ctrlr);
+}
 
 int
 spdk_nvme_csd_ctrlr_load_program(struct spdk_nvme_ctrlr *ctrlr, void *payload, uint32_t size,
-				int slot, struct spdk_nvme_status *completion_status)
+				 bool unload, uint8_t program_type, uint16_t program_id,
+				 struct spdk_nvme_status *completion_status)
 {
 	struct nvme_completion_poll_status	*status;
 	int					res;
@@ -73,18 +131,18 @@ spdk_nvme_csd_ctrlr_load_program(struct spdk_nvme_ctrlr *ctrlr, void *payload, u
 	if (size > ctrlr->min_page_size)
 	{
 		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Program size bigger than MIN page size\n");
-		return -ENOMEM;
+		return -EFBIG;
 	}
 
 	if (size > 0xFFFFFFFF)
 	{
 		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Program size bigger than 0xFFFFFFFF\n");
-		return -ENOMEM;
+		return -EFBIG;
 	}
 
 	memset(status, 0, sizeof(*status));
 	res = spdk_nvme_csd_ctrlr_load_program_cmd(ctrlr, size, payload,
-							1, 2, slot,
+							unload, program_type, program_id,
 							nvme_completion_poll_cb, status);
 	if (res) {
 		free(status);
@@ -102,18 +160,192 @@ spdk_nvme_csd_ctrlr_load_program(struct spdk_nvme_ctrlr *ctrlr, void *payload, u
 	return spdk_nvme_ctrlr_reset(ctrlr);
 }
 
-void spdk_nvme_csd_ctrlr_program_activate(void)
+int
+spdk_nvme_csd_ctrlr_execute_program(struct spdk_nvme_ctrlr *ctrlr,
+				 uint16_t ce_id, uint16_t p_id, 
+				 uint16_t rs_id,
+				 void * d_ptr,
+				 void * c_param,
+				 struct spdk_nvme_status *completion_status)
 {
+	struct nvme_completion_poll_status	*status;
+	int					res;
+
+	if (!completion_status) {
+		return -EINVAL;
+	}
+	memset(completion_status, 0, sizeof(struct spdk_nvme_status));
+
+	status = calloc(1, sizeof(*status));
+	if (!status) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Failed to allocate status tracker\n");
+		return -ENOMEM;
+	}
+
+	memset(status, 0, sizeof(*status));
+	res = spdk_nvme_csd_ctrlr_execute_program_cmd(ctrlr,
+							ce_id, p_id, rs_id,
+							d_ptr, c_param,
+							nvme_completion_poll_cb, status);
+	if (res) {
+		free(status);
+		return res;
+	}
+
+	if (nvme_wait_for_completion_robust_lock(ctrlr->adminq, status, &ctrlr->ctrlr_lock)) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "spdk_nvme_csd_ctrlr_execute_program failed!\n");
+		if (!status->timed_out) {
+			free(status);
+		}
+		return -ENXIO;
+	}
+	
+	return spdk_nvme_ctrlr_reset(ctrlr);
 }
 
-void spdk_nvme_csd_ctrlr_execute_program(void)
+int
+spdk_nvme_csd_ctrlr_create_memory_range_set(struct spdk_nvme_ctrlr *ctrlr, 
+						uint32_t nu_mr,
+						void *data,
+				 		struct spdk_nvme_status *completion_status)
 {
+	struct nvme_completion_poll_status	*status;
+	int					res;
+
+	if (!completion_status) {
+		return -EINVAL;
+	}
+	memset(completion_status, 0, sizeof(struct spdk_nvme_status));
+
+	status = calloc(1, sizeof(*status));
+	if (!status) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Failed to allocate status tracker\n");
+		return -ENOMEM;
+	}
+
+	memset(status, 0, sizeof(*status));
+	res = spdk_nvme_csd_ctrlr_create_memory_range_set_cmd(ctrlr, nu_mr, data,
+							nvme_completion_poll_cb, status);
+	if (res) {
+		free(status);
+		return res;
+	}
+
+	if (nvme_wait_for_completion_robust_lock(ctrlr->adminq, status, &ctrlr->ctrlr_lock)) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "spdk_nvme_csd_ctrlr_create_memory_range_set failed!\n");
+		if (!status->timed_out) {
+			free(status);
+		}
+		return -ENXIO;
+	}
+	
+	return spdk_nvme_ctrlr_reset(ctrlr);
+}
+
+int
+spdk_nvme_csd_ctrlr_delete_memory_range_set(struct spdk_nvme_ctrlr *ctrlr, 
+				 		uint16_t rs_id,
+				 		struct spdk_nvme_status *completion_status)
+{
+	struct nvme_completion_poll_status	*status;
+	int					res;
+
+	if (!completion_status) {
+		return -EINVAL;
+	}
+	memset(completion_status, 0, sizeof(struct spdk_nvme_status));
+
+	status = calloc(1, sizeof(*status));
+	if (!status) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Failed to allocate status tracker\n");
+		return -ENOMEM;
+	}
+
+	memset(status, 0, sizeof(*status));
+	res = spdk_nvme_csd_ctrlr_delete_memory_range_set_cmd(ctrlr,
+							rs_id,
+							nvme_completion_poll_cb, status);
+	if (res) {
+		free(status);
+		return res;
+	}
+
+	if (nvme_wait_for_completion_robust_lock(ctrlr->adminq, status, &ctrlr->ctrlr_lock)) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "spdk_nvme_csd_ctrlr_delete_memory_range_set failed!\n");
+		if (!status->timed_out) {
+			free(status);
+		}
+		return -ENXIO;
+	}
+	
+	return spdk_nvme_ctrlr_reset(ctrlr);
+}
+
+static int
+spdk_nvme_csd_ctrlr_program_activate_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 	uint16_t ce_id, uint16_t p_id, uint8_t action,
+					spdk_nvme_cmd_cb cb_fn, void *cb_arg)
+{
+	struct nvme_request *req;
+	struct spdk_nvme_cmd *cmd;
+	int rc;
+
+	nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
+	req = nvme_allocate_request_null(ctrlr->adminq, cb_fn, cb_arg);
+	if (req == NULL) {
+		nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+		return -ENOMEM;
+	}
+
+	cmd = &req->cmd;
+	cmd->opc = SPDK_CSD_OPC_PROGRAM_ACTIVATION;
+	cmd->cdw10_bits.csd_program_activation.ceid = ce_id;
+	cmd->cdw10_bits.csd_program_activation.pid = p_id;
+	cmd->cdw11_bits.csd_program_activation.action = action;
+
+	rc = nvme_ctrlr_submit_admin_request(ctrlr, req);
+	nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+
+	return rc;
+}
+
+static int
+spdk_nvme_csd_ctrlr_execute_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 uint16_t ce_id, uint16_t p_id, 
+				 uint16_t rs_id,
+				 void * d_ptr,
+				 void * c_param,
+				 spdk_nvme_cmd_cb cb_fn, void *cb_arg)
+{
+	struct nvme_request *req;
+	struct spdk_nvme_cmd *cmd;
+	int rc;
+	uint16_t size = 6 * sizeof(uint32_t);
+
+	nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
+	req = nvme_allocate_request_user_copy(ctrlr->adminq, d_ptr, size, cb_fn, cb_arg, true);
+	if (req == NULL) {
+		nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+		return -ENOMEM;
+	}
+
+	cmd = &req->cmd;
+	cmd->opc = SPDK_CSD_OPC_EXECUTE_PROGRAM;
+	cmd->cdw2_bits.csd_execute_program.ceid = ce_id;
+	cmd->cdw2_bits.csd_execute_program.pid = p_id;
+	cmd->cdw3_bits.csd_execute_program.rsid = rs_id;
+	memcpy(&cmd->cdw10, c_param, size);
+
+	rc = nvme_ctrlr_submit_admin_request(ctrlr, req);
+	nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+
+	return rc;
 }
 
 static int 
 spdk_nvme_csd_ctrlr_load_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
 				 uint32_t size, void *payload,
-				 bool unload, uint8_t program_type, uint16_t program_slot,
+				 bool unload, uint8_t program_type, uint16_t program_id,
 				 spdk_nvme_cmd_cb cb_fn, void *cb_arg)
 {
 	struct nvme_request *req;
@@ -131,7 +363,7 @@ spdk_nvme_csd_ctrlr_load_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
 	cmd->opc = SPDK_CSD_OPC_LOAD_PROGRAM;
 	cmd->cdw10_bits.csd_load_program.unl = unload;
 	cmd->cdw10_bits.csd_load_program.ptype = program_type;
-	cmd->cdw10_bits.csd_load_program.pslot = program_slot;
+	cmd->cdw10_bits.csd_load_program.pid = program_id;
 	cmd->cdw11 = size;
 
 	rc = nvme_ctrlr_submit_admin_request(ctrlr, req);
@@ -140,10 +372,55 @@ spdk_nvme_csd_ctrlr_load_program_cmd(struct spdk_nvme_ctrlr *ctrlr,
 	return rc;
 }
 
-void spdk_nvme_csd_ctrlr_create_memory_range_set(void)
+static int
+spdk_nvme_csd_ctrlr_create_memory_range_set_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 		uint32_t nu_mr, void *data,
+						spdk_nvme_cmd_cb cb_fn, void *cb_arg)
 {
+	struct nvme_request *req;
+	struct spdk_nvme_cmd *cmd;
+	int rc;
+	uint32_t size = nu_mr * sizeof(struct spdk_csd_memory_range_definition);
+
+	nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
+	req = nvme_allocate_request_user_copy(ctrlr->adminq, data, size, cb_fn, cb_arg, true);
+	if (req == NULL) {
+		nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+		return -ENOMEM;
+	}
+
+	cmd = &req->cmd;
+	cmd->opc = SPDK_CSD_OPC_CREATE_MEMORY_RANGE_SET;
+	cmd->cdw10 = nu_mr;
+
+	rc = nvme_ctrlr_submit_admin_request(ctrlr, req);
+	nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+
+	return rc;
 }
 
-void spdk_nvme_csd_ctrlr_delete_memory_range_set(void)
+static int
+spdk_nvme_csd_ctrlr_delete_memory_range_set_cmd(struct spdk_nvme_ctrlr *ctrlr,
+				 		uint16_t rs_id,
+						spdk_nvme_cmd_cb cb_fn, void *cb_arg)
 {
+	struct nvme_request *req;
+	struct spdk_nvme_cmd *cmd;
+	int rc;
+
+	nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
+	req = nvme_allocate_request_null(ctrlr->adminq, cb_fn, cb_arg);
+	if (req == NULL) {
+		nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+		return -ENOMEM;
+	}
+
+	cmd = &req->cmd;
+	cmd->opc = SPDK_CSD_OPC_DELETE_MEMORY_RANGE_SET;
+	cmd->cdw10_bits.csd_delete_memory_range_set.rsid = rs_id;
+
+	rc = nvme_ctrlr_submit_admin_request(ctrlr, req);
+	nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+
+	return rc;
 }
