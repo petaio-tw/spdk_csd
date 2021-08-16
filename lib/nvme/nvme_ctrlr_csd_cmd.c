@@ -281,6 +281,41 @@ spdk_nvme_csd_ctrlr_delete_memory_range_set(struct spdk_nvme_ctrlr *ctrlr,
 	return spdk_nvme_ctrlr_reset(ctrlr);
 }
 
+int
+spdk_nvme_csd_ctrlr_get_log_page(struct spdk_nvme_ctrlr *ctrlr, 
+				uint8_t log_page, uint32_t nsid, 
+				void *payload, uint32_t payload_size, uint64_t offset)
+{
+	struct nvme_completion_poll_status *status;
+	int rc;
+
+	status = calloc(1, sizeof(*status));
+	if (status == NULL) {
+		NVME_CTRLR_CSD_ERRLOG(ctrlr, "Failed to allocate status tracker\n");
+		return -ENOMEM;
+	}
+
+	rc = spdk_nvme_ctrlr_cmd_get_log_page(ctrlr, 
+						log_page, nsid, 
+						payload, payload_size, offset,
+					 	nvme_completion_poll_cb, status);
+	if (rc != 0) {
+		free(status);
+		return rc;
+	}
+
+	if (nvme_wait_for_completion_robust_lock_timeout(ctrlr->adminq, status, &ctrlr->ctrlr_lock,
+			ctrlr->opts.admin_timeout_ms * 1000)) {
+		if (!status->timed_out) {
+			free(status);
+		}
+		return -EIO;
+	}
+
+	free(status);
+	return 0;
+}
+
 static int
 spdk_nvme_csd_ctrlr_program_activate_cmd(struct spdk_nvme_ctrlr *ctrlr,
 				 	uint16_t ce_id, uint16_t p_id, uint8_t action,

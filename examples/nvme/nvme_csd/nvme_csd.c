@@ -41,6 +41,8 @@
 
 #include "spdk/nvme_csd.h"
 
+#define FOR_ONLY_ONE_TEST_DEVICE	1
+
 #define MAX_DEVS 64
 #define MAX_SHELL_CMD_DESC_STR		100
 
@@ -74,6 +76,9 @@ enum shell_cmd_idx {
 	SHELL_CMD_LOAD_PROGRAM,
 	SHELL_CMD_CREATE_MEMORY_RANGE_SET,
 	SHELL_CMD_DELETE_MEMORY_RANGE_SET,
+	SHELL_CMD_PROGRAM_INFORMATION_LOG,
+	SHELL_CMD_COMPUTE_ENGINE_INFORMATION,
+	SHELL_CMD_COMPUTE_ENGINE_LIST,
 	SHELL_CMD_QUIT,
 
 	SHELL_CMD_MAX
@@ -90,15 +95,25 @@ static void nvme_csd_execute_program(void);
 static void nvme_csd_load_program(void);
 static void nvme_csd_create_memory_range_set(void);
 static void nvme_csd_delete_memory_range_set(void);
+static void nvme_csd_get_program_information_log(void);
+static void nvme_csd_get_compute_engine_information(void);
+static void nvme_csd_get_compute_engine_list(void);
+static int
+nvme_csd_get_log_page(struct spdk_nvme_ctrlr *ctrlr, 
+			uint8_t log_page, 
+			void *payload, uint32_t payload_size);
 
 struct shell_content g_shell_content[SHELL_CMD_MAX] = 
 {
-	{nvme_csd_program_activation,		"SHELL_CMD_PROGRAM_ACTIVATION"},
-	{nvme_csd_execute_program,		"SHELL_CMD_EXECUTE_PROGRAM"},
-	{nvme_csd_load_program,			"SHELL_CMD_LOAD_PROGRAM"},
-	{nvme_csd_create_memory_range_set,	"SHELL_CMD_CREATE_MEMORY_RANGE_SET"},
-	{nvme_csd_delete_memory_range_set,	"SHELL_CMD_DELETE_MEMORY_RANGE_SET"},
-	{shell_cmd_quit,			"SHELL_CMD_QUIT"},
+	{nvme_csd_program_activation,			"SHELL_CMD_PROGRAM_ACTIVATION"},
+	{nvme_csd_execute_program,			"SHELL_CMD_EXECUTE_PROGRAM"},
+	{nvme_csd_load_program,				"SHELL_CMD_LOAD_PROGRAM"},
+	{nvme_csd_create_memory_range_set,		"SHELL_CMD_CREATE_MEMORY_RANGE_SET"},
+	{nvme_csd_delete_memory_range_set,		"SHELL_CMD_DELETE_MEMORY_RANGE_SET"},
+	{nvme_csd_get_program_information_log,		"SHELL_CMD_PROGRAM_INFORMATION_LOG"},
+	{nvme_csd_get_compute_engine_information,	"SHELL_CMD_COMPUTE_ENGINE_INFORMATION"},
+	{nvme_csd_get_compute_engine_list,		"SHELL_CMD_COMPUTE_ENGINE_LIST"},
+	{shell_cmd_quit,				"SHELL_CMD_QUIT"},
 };
 
 static void shell_cmd_quit(void)
@@ -186,6 +201,7 @@ static void usage(void)
 	}
 }
 
+#if !FOR_ONLY_ONE_TEST_DEVICE
 static void
 display_namespace_dpc(const struct spdk_nvme_ns_data *nsdata)
 {
@@ -314,6 +330,7 @@ display_controller(struct dev *dev, int model)
 		display_namespace(ns);
 	}
 }
+#endif
 
 static char *
 get_line(char *buf, int buf_size, FILE *f, bool secret)
@@ -356,6 +373,7 @@ get_line(char *buf, int buf_size, FILE *f, bool secret)
 	return buf;
 }
 
+#if !FOR_ONLY_ONE_TEST_DEVICE
 static struct dev *
 get_controller(void)
 {
@@ -394,6 +412,7 @@ get_controller(void)
 	}
 	return NULL;
 }
+#endif
 
 static void
 args_usage(const char *program_name)
@@ -436,11 +455,15 @@ static void nvme_csd_program_activation(void)
 	struct dev				*ctrlr;
 	struct spdk_nvme_status			status;
 
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
 	ctrlr = get_controller();
 	if (ctrlr == NULL) {
 		printf("Invalid controller PCI BDF.\n");
 		return;
 	}
+#endif
 
 	printf("Please input compute engine identifier :\n");
 	if (!scanf("%d", &compute_engine_id)) {
@@ -488,11 +511,15 @@ static void nvme_csd_execute_program(void)
 	struct dev				*ctrlr;
 	struct spdk_nvme_status			status;
 
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
 	ctrlr = get_controller();
 	if (ctrlr == NULL) {
 		printf("Invalid controller PCI BDF.\n");
 		return;
 	}
+#endif
 
 	printf("Please Input The Path Of data\n");
 
@@ -589,11 +616,15 @@ static void nvme_csd_load_program(void)
 	struct dev				*ctrlr;
 	struct spdk_nvme_status			status;
 
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
 	ctrlr = get_controller();
 	if (ctrlr == NULL) {
 		printf("Invalid controller PCI BDF.\n");
 		return;
 	}
+#endif
 
 	printf("Please Input The Path Of program Image\n");
 
@@ -684,11 +715,15 @@ static void nvme_csd_create_memory_range_set(void)
 	struct dev				*ctrlr;
 	struct spdk_nvme_status			status;
 
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
 	ctrlr = get_controller();
 	if (ctrlr == NULL) {
 		printf("Invalid controller PCI BDF.\n");
 		return;
 	}
+#endif
 
 	printf("Please Input The Path Of memory ranges definition Image\n");
 
@@ -759,11 +794,15 @@ static void nvme_csd_delete_memory_range_set(void)
 	struct dev				*ctrlr;
 	struct spdk_nvme_status			status;
 
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
 	ctrlr = get_controller();
 	if (ctrlr == NULL) {
 		printf("Invalid controller PCI BDF.\n");
 		return;
 	}
+#endif
 
 	printf("Please input memory range set identifier :\n");
 	if (!scanf("%d", &ranges_set_id)) {
@@ -780,6 +819,279 @@ static void nvme_csd_delete_memory_range_set(void)
 	} else {
 		printf("spdk_nvme_csd_ctrlr_create_memory_range_set success\n");
 	}
+}
+
+static void nvme_csd_get_program_information_log(void)
+{
+	int					rc;
+	struct dev				*ctrlr;
+	struct spdk_csd_program_information_log * p_program_info_log;
+	size_t size;
+	uint32_t number_of_records;
+
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
+	ctrlr = get_controller();
+	if (ctrlr == NULL) {
+		printf("Invalid controller PCI BDF.\n");
+		return;
+	}
+#endif
+
+	size = sizeof(p_program_info_log->number_of_records);
+	size = SPDK_ALIGN_CEIL(size, sizeof(uint32_t));
+	p_program_info_log = spdk_zmalloc(size, 1, NULL,
+						SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+
+	if (p_program_info_log == NULL)
+	{
+		printf("could not allocate log page buffer(size:%ld)\n", size);
+		return ;
+	}
+
+	rc = nvme_csd_get_log_page(ctrlr->ctrlr,
+				SPDK_CSD_LOG_PROGRAM_INFORMATION,
+				p_program_info_log, size);
+	if (rc) {
+		printf("spdk_nvme_csd_ctrlr_get_log_page failed (err:%d)\n", rc);
+	} else {
+		printf("spdk_nvme_csd_ctrlr_get_log_page success\n");
+	}
+
+	number_of_records = p_program_info_log->number_of_records;
+
+	printf("number_of_records:%d\r\n", number_of_records);
+
+	spdk_free(p_program_info_log);
+
+	if (number_of_records != 0)
+	{
+		size = sizeof(struct spdk_csd_program_information_data) * (number_of_records + 1);
+		size = SPDK_ALIGN_CEIL(size, sizeof(uint32_t));
+		p_program_info_log = spdk_zmalloc(size, 1, NULL,
+							SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+
+		if (p_program_info_log == NULL)
+		{
+			printf("could not allocate log page buffer(size:%ld)\n", size);
+			return ;
+		}
+
+		rc = nvme_csd_get_log_page(ctrlr->ctrlr,
+					SPDK_CSD_LOG_PROGRAM_INFORMATION,
+					p_program_info_log, size);
+		if (rc) {
+			printf("spdk_nvme_csd_ctrlr_get_log_page failed (err:%d)\n", rc);
+		} else {
+			printf("spdk_nvme_csd_ctrlr_get_log_page success\n");
+		}
+
+		uint32_t i, j;
+		struct spdk_csd_program_information_data * p_program_info_data = 
+			&p_program_info_log->program_record[0];
+		for (i = 0; i < number_of_records; i++)
+		{
+			printf("program_entry_type:%d, program_entry_occupied:%d\r\n",
+				p_program_info_data->program_entry_type, p_program_info_data->program_entry_occupied);
+
+			printf("number_of_associated_compute_engines:%d\r\n", 
+				p_program_info_data->number_of_associated_compute_engines);
+
+			for (j = 0; j < p_program_info_data->number_of_associated_compute_engines; j++)
+			{	
+				printf("activation:%d, compute_engine_identifier:%d\r\n",
+					p_program_info_data->associated_compute_engine_descriptor[j].activation,
+					p_program_info_data->associated_compute_engine_descriptor[j].compute_engine_identifier);
+			}
+			
+			printf("program_type:%d\r\n", p_program_info_data->program_type);
+
+			printf("UUID\r\n");
+			for (j = 0; j < UUID_BYTE_SIZE; j++)
+			{
+				printf("%02X", p_program_info_data->program_uuid[j]);
+			}
+			printf("\r\n");
+
+			p_program_info_data++;
+		}
+		spdk_free(p_program_info_log);
+	}
+}
+
+static void nvme_csd_get_compute_engine_information(void)
+{
+	int					rc;
+	struct dev				*ctrlr;
+	struct spdk_csd_controller_memory_region * p_controller_memory_region;
+	size_t size;
+	int i;
+
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
+	ctrlr = get_controller();
+	if (ctrlr == NULL) {
+		printf("Invalid controller PCI BDF.\n");
+		return;
+	}
+#endif
+
+	size = sizeof(struct spdk_csd_controller_memory_region);
+	size = SPDK_ALIGN_CEIL(size, sizeof(uint32_t));
+	printf("allocate log page buffer(size:%ld)\n", size);
+	p_controller_memory_region = spdk_zmalloc(size, 1, NULL,
+						SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+
+	if (p_controller_memory_region == NULL)
+	{
+		printf("could not allocate log page buffer(size:%ld)\n", size);
+		return ;
+	}
+
+	rc = nvme_csd_get_log_page(ctrlr->ctrlr,
+				SPDK_CSD_LOG_COMPUTE_ENGINE_INFORMATION,
+				p_controller_memory_region, size);
+	if (rc) {
+		printf("spdk_nvme_csd_ctrlr_get_log_page failed (err:%d)\n", rc);
+	} else {
+		printf("spdk_nvme_csd_ctrlr_get_log_page success\n");
+	}
+
+	printf("number_of_controller_memory_regions:%d\r\n", p_controller_memory_region->number_of_controller_memory_regions);
+
+	for (i = 0; i < p_controller_memory_region->number_of_controller_memory_regions; i++)
+	{
+		struct spdk_csd_memory_region_descriptor * p_memory_region =
+			(struct spdk_csd_memory_region_descriptor *)&p_controller_memory_region->memory_region[i];
+		printf("[%d]memory_region_id:%d\r\n", i, p_memory_region->memory_region_id);
+	}
+
+	printf("number_of_supported_downloadable_program_types:%d\r\n", p_controller_memory_region->number_of_supported_downloadable_program_types);
+
+	for (i = 0; i < p_controller_memory_region->number_of_supported_downloadable_program_types; i++)
+	{
+		printf("[%d]program_type_identifier:%d\r\n", i, p_controller_memory_region->program_type_identifier[i]);
+	}
+
+	printf("engine charactreistics :\r\n");
+	for (i = 0; i < ENGINE_CHARACTERISTICS_BYTE_SIZE; i++)
+	{
+		printf("%02X", p_controller_memory_region->general_engine_characteristics[i]);
+	}
+	printf("\r\n");
+
+	spdk_free(p_controller_memory_region);
+}
+
+static void nvme_csd_get_compute_engine_list(void)
+{
+	int					rc;
+	struct dev				*ctrlr;
+	struct spdk_csd_compute_engine_list * p_compute_engine_list;
+	size_t size;
+	uint32_t number_of_compute_engine;
+
+#if FOR_ONLY_ONE_TEST_DEVICE
+	ctrlr = devs;
+#else
+	ctrlr = get_controller();
+	if (ctrlr == NULL) {
+		printf("Invalid controller PCI BDF.\n");
+		return;
+	}
+#endif
+
+	size = sizeof(p_compute_engine_list->number_of_compute_engine);
+	size = SPDK_ALIGN_CEIL(size, sizeof(uint32_t));
+	p_compute_engine_list = spdk_zmalloc(size, 1, NULL,
+						SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+
+	if (p_compute_engine_list == NULL)
+	{
+		printf("could not allocate log page buffer(size:%ld)\n", size);
+		return ;
+	}
+
+	rc = nvme_csd_get_log_page(ctrlr->ctrlr,
+				SPDK_CSD_LOG_COMPUTE_ENGINE_LIST,
+				p_compute_engine_list, size);
+	if (rc) {
+		printf("spdk_nvme_csd_ctrlr_get_log_page failed (err:%d)\n", rc);
+	} else {
+		printf("spdk_nvme_csd_ctrlr_get_log_page success\n");
+	}
+
+	number_of_compute_engine = p_compute_engine_list->number_of_compute_engine;
+
+	printf("number_of_compute_engine:%d\r\n", number_of_compute_engine);
+
+	spdk_free(p_compute_engine_list);
+
+	if (number_of_compute_engine != 0)
+	{
+		size = 8 + (sizeof(uint16_t) * number_of_compute_engine);
+		size = SPDK_ALIGN_CEIL(size, sizeof(uint32_t));
+		p_compute_engine_list = spdk_zmalloc(size, 1, NULL,
+							SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+
+		if (p_compute_engine_list == NULL)
+		{
+			printf("could not allocate log page buffer(size:%ld)\n", size);
+			return ;
+		}
+
+		rc = nvme_csd_get_log_page(ctrlr->ctrlr,
+					SPDK_CSD_LOG_COMPUTE_ENGINE_LIST,
+					p_compute_engine_list, size);
+		if (rc) {
+			printf("spdk_nvme_csd_ctrlr_get_log_page failed (err:%d)\n", rc);
+		} else {
+			printf("spdk_nvme_csd_ctrlr_get_log_page success\n");
+		}
+
+		uint32_t i;
+		for (i = 0; i < p_compute_engine_list->number_of_compute_engine; i++)
+		{
+			printf("[%d]compute_engine_identifier:%d\r\n",
+				i, p_compute_engine_list->compute_engine_identifier[i]);
+		}
+		spdk_free(p_compute_engine_list);
+	}
+}
+
+static int
+nvme_csd_get_log_page(struct spdk_nvme_ctrlr *ctrlr, 
+			uint8_t log_page, 
+			void *payload, uint32_t payload_size)
+{
+	int rc;
+	uint64_t offset;
+	uint64_t tansfer_byte;
+	uint64_t max_transfer_byte;
+	const struct spdk_nvme_ctrlr_data *cdata;
+	cdata = spdk_nvme_ctrlr_get_data(ctrlr);
+
+	max_transfer_byte = cdata->lpa.edlp ? 0x10000 : 0x100;
+
+	offset = 0;
+	while (payload_size > 0)
+	{
+		tansfer_byte = spdk_min(max_transfer_byte, payload_size);
+
+		rc = spdk_nvme_csd_ctrlr_get_log_page(ctrlr,
+							log_page, 0,
+							payload + offset, tansfer_byte,
+							offset);
+		if (rc) {
+			return rc;
+		}
+		offset += tansfer_byte;
+		payload_size -= tansfer_byte;
+	}
+
+	return 0;
 }
 
 int main(int argc, char **argv)

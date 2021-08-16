@@ -72,6 +72,10 @@ int spdk_nvme_csd_ctrlr_delete_memory_range_set(struct spdk_nvme_ctrlr *ctrlr,
 				 		uint16_t rs_id,
 				 		struct spdk_nvme_status *completion_status);
 
+int
+spdk_nvme_csd_ctrlr_get_log_page(struct spdk_nvme_ctrlr *ctrlr, 
+				uint8_t log_page, uint32_t nsid, 
+				void *payload, uint32_t payload_size, uint64_t offset);
 #ifdef __cplusplus
 }
 #endif
