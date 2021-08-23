@@ -1,0 +1,29 @@
+#include <stddef.h>
+#include "spdk/shell.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Shell Command function
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Shell Command Table
+
+const SHELL_CMD_TABLE_T shell_cmd_table[] =
+{
+	// Command,		Explanation,							Function pointer
+	{"help",		"print command list",					spdk_shell_cmd_print_list},			
+	{NULL, NULL, NULL},		// should end with NULL
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Shell Task function
+
+int
+main(int argc, char **argv)
+{
+	spdk_shell_init(shell_cmd_table);
+	spdk_shell_task();
+}
+
+

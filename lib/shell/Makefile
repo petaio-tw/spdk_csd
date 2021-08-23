@@ -31,18 +31,15 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-SPDK_ROOT_DIR := $(abspath $(CURDIR)/..)
+SPDK_ROOT_DIR := $(abspath $(CURDIR)/../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
-DIRS-y += accel bdev blob ioat nvme sock vmd nvmf util csd
+SO_VER := 1
+SO_MINOR := 0
 
-ifeq ($(OS),Linux)
-DIRS-$(CONFIG_VHOST) += interrupt_tgt
-endif
+C_SRCS = shell_common.c string_util.c
+LIBNAME = shell
 
-.PHONY: all clean $(DIRS-y)
+SPDK_MAP_FILE = $(abspath $(CURDIR)/spdk_shell.map)
 
-all: $(DIRS-y)
-clean: $(DIRS-y)
-
-include $(SPDK_ROOT_DIR)/mk/spdk.subdirs.mk
+include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
