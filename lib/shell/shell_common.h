@@ -20,14 +20,6 @@ typedef struct _SHELL_COMMON_T
 	const SHELL_CMD_TABLE_T* cmd_table;
 } SHELL_COMMON_T;
 
-typedef enum _SHELL_ERROR_CODE_E
-{
-	SHELL_ERROR_CODE_SUCCESS					= 0x0,
-	SHELL_ERROR_CODE_FAIL						= 0x1,	
-	SHELL_ERROR_CODE_WRONG_NUM_PARAMETERS		= 0x2,
-	SHELL_ERROR_CODE_INVALID_PARAMETER			= 0x3,
-} SHELL_ERROR_CODE_E;
-
 extern SHELL_COMMON_T g_shell_common[1];
 
 
@@ -72,9 +64,5 @@ shell_common_get_parameter_int32(UINT32 parameters_index);
 
 UINT32
 shell_common_get_parameter_uint32(UINT32 parameters_index);
-
-BOOL
-shell_common_get_parameters_uint32(UINT32* parameter, UINT32 num_parameters);
-
 
 #endif	// __SHELL_COMMON_H__

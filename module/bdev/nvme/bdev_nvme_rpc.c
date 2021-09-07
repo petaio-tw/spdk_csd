@@ -270,6 +270,8 @@ static void
 rpc_bdev_nvme_attach_controller(struct spdk_jsonrpc_request *request,
 				const struct spdk_json_val *params)
 {
+	printf("%s\n", __FUNCTION__);
+
 	struct rpc_bdev_nvme_attach_controller_ctx *ctx;
 	struct spdk_nvme_transport_id trid = {};
 	struct spdk_nvme_host_id hostid = {};

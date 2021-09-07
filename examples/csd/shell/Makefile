@@ -37,6 +37,6 @@ APP = csd_shell
 
 C_SRCS := csd_shell.c
 
-SPDK_LIB_LIST = $(ALL_MODULES_LIST) shell
+SPDK_LIB_LIST = $(ALL_MODULES_LIST) shell event event_bdev
 
 include $(SPDK_ROOT_DIR)/mk/spdk.app.mk

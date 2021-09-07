@@ -3300,6 +3300,7 @@ spdk_bdev_alias_add(struct spdk_bdev *bdev, const char *alias)
 	}
 
 	ret = bdev_name_add(&tmp->alias, bdev, alias);
+	printf("2)bdev_name_add:%s", alias);
 	if (ret != 0) {
 		free(tmp);
 		return ret;
@@ -5599,6 +5600,7 @@ bdev_register(struct spdk_bdev *bdev)
 	bdev->internal.qos = NULL;
 
 	ret = bdev_name_add(&bdev->internal.bdev_name, bdev, bdev->name);
+	printf("1)bdev_name_add:%s", bdev->name);
 	if (ret != 0) {
 		free(bdev_name);
 		return ret;
@@ -5691,6 +5693,7 @@ bdev_register_finished(void *arg)
 int
 spdk_bdev_register(struct spdk_bdev *bdev)
 {
+	printf("%s, %s\n", __FUNCTION__, bdev->name);
 	int rc = bdev_register(bdev);
 
 	if (rc == 0) {
@@ -6098,6 +6101,7 @@ spdk_bdev_io_get_cb_arg(struct spdk_bdev_io *bdev_io)
 void
 spdk_bdev_module_list_add(struct spdk_bdev_module *bdev_module)
 {
+	printf("%s,%s\n", __FUNCTION__, bdev_module->name);
 
 	if (spdk_bdev_module_list_find(bdev_module->name)) {
 		SPDK_ERRLOG("ERROR: module '%s' already registered.\n", bdev_module->name);

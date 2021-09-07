@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdint.h>
 #include "string_util.h"
 #include "shell_common.h"
 
@@ -249,14 +250,14 @@ shell_common_get_parameter_uint32(UINT32 parameters_index)
 	return number;
 }
 
-BOOL
-shell_common_get_parameters_uint32(UINT32* parameter, UINT32 num_parameters)
+bool
+spdk_shell_common_get_parameters_uint32(uint32_t* parameter, uint32_t num_parameters)
 {
 	if (shell_common_get_num_parameters() != num_parameters) {
 		return FALSE;
 	}
 
-	for (UINT32 index = 0; index < num_parameters; index++) {
+	for (uint32_t index = 0; index < num_parameters; index++) {
 		parameter[index] = shell_common_get_parameter_uint32(index);
 	}
 
