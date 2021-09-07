@@ -1,0 +1,10 @@
+{
+	global:
+
+	# Public functions
+	spdk_shell_init;
+	spdk_shell_task;
+	spdk_shell_cmd_print_list;
+
+	local: *;
+};
