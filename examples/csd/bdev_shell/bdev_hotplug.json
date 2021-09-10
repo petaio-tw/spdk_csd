@@ -1,0 +1,16 @@
+{
+  "subsystems": [
+    {
+      "subsystem": "bdev",
+      "config": [
+        {
+          "method": "bdev_nvme_set_hotplug",
+          "params": {
+            "enable": true,
+            "period_us": 2000000
+          }
+        }
+      ]
+    }
+  ]
+}

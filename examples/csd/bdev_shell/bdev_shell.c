@@ -32,7 +32,7 @@
 /* {Constants define for LOCAL reference ONLY.}           */  
 /*                                                        */  
 /**********************************************************/
-#define CSD_SHELL_POLLING_TIME_US	1000
+
 
 /**********************************************************/
 /*                                                        */
@@ -79,6 +79,10 @@ int32_t shell_hello_read(void);
 static
 int32_t shell_stop_app(void);
 static 
+int32_t shell_open_bdev(void);
+static 
+void hello_open_bdev(void *arg);
+static 
 void hello_start(void *arg1);
 static 
 void hello_bdev_usage(void);
@@ -117,6 +121,7 @@ static const SHELL_CMD_TABLE_T shell_cmd_table[] =
 	{"write",		"write hello bdev",					shell_hello_write},
 	{"read",		"read hello bdev",					shell_hello_read},
 	{"stop",		"stop app",						shell_stop_app},			
+	{"open",		"open bdev",						shell_open_bdev},			
 	{NULL, NULL, NULL},		// should end with NULL
 };
 
@@ -258,15 +263,31 @@ int32_t shell_stop_app(void)
 	return 0;	
 }
 
-/*
- * Our initial event that kicks off everything from main().
- */
+static
+int32_t shell_open_bdev(void)
+{
+	struct hello_context_t *hello_context = &g_hello_context;
+
+	char *bdev_name = NULL;
+
+	bdev_name = (char *)spdk_shell_common_get_parameter_string(0);
+	if (bdev_name != NULL) {
+		SPDK_NOTICELOG("set bdev_name=%s\n", bdev_name);
+		hello_context->bdev_name = bdev_name;
+	}
+
+	spdk_thread_send_msg(g_hello_context.app_thread, hello_open_bdev, &g_hello_context);
+
+	return 0;
+}
+
 static 
-void hello_start(void *arg1)
+void hello_open_bdev(void *arg)
 {	
-	struct hello_context_t *hello_context = arg1;
+	struct hello_context_t *hello_context = arg;
 	uint32_t blk_size, buf_align;
 	int rc = 0;
+
 	hello_context->bdev = NULL;
 	hello_context->bdev_desc = NULL;
 
@@ -322,9 +343,16 @@ void hello_start(void *arg1)
 		/* If bdev is zoned, the callback, reset_zone_complete, will call hello_write() */
 		return;
 	}
+}
 
-	hello_context->app_thread = spdk_get_thread();
-	pthread_create(&hello_context->user_app, NULL, user_app, "usr_app");	
+/*
+ * Our initial event that kicks off everything from main().
+ */
+static 
+void hello_start(void *arg1)
+{	
+	g_hello_context.app_thread = spdk_get_thread();
+	pthread_create(&g_hello_context.user_app, NULL, user_app, "usr_app");	
 }
 
 
