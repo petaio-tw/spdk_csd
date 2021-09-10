@@ -28,5 +28,6 @@ int32_t
 spdk_shell_cmd_print_list(void);
 bool
 spdk_shell_common_get_parameters_uint32(uint32_t* parameter, uint32_t num_parameters);
-
+const char*
+spdk_shell_common_get_parameter_string(uint32_t parameters_index);
 #endif	// __SHELL_H__

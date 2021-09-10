@@ -81,7 +81,9 @@ shell_common_parse(void)
 	// convert command line to lower case
 	char* cmd_line_string = g_shell_common->cmd_line_string;
 
+#if 0
 	string_to_lower(cmd_line_string);
+#endif	
 
 	// get shell command
 	UINT32 whitespace = string_get_whitespace(cmd_line_string);
@@ -198,22 +200,6 @@ shell_common_run(void)
 	shell_common_prompt();
 }
 
-const char*
-shell_common_get_parameter_string(UINT32 parameters_index)
-{
-	UINT32 num_parameters = g_shell_common->num_parameters;
-	if (parameters_index >= num_parameters)
-	{
-		printf("[Shell] Enter a parameter - %d\n", parameters_index);
-
-		return NULL;
-	}
-
-	const char* parameter_string = g_shell_common->parameter_list[parameters_index];
-
-	return parameter_string;
-}
-
 INT32
 shell_common_get_parameter_int32(UINT32 parameters_index)
 {
@@ -250,6 +236,9 @@ shell_common_get_parameter_uint32(UINT32 parameters_index)
 	return number;
 }
 
+//-----------------------------------------------
+// export functions
+//
 bool
 spdk_shell_common_get_parameters_uint32(uint32_t* parameter, uint32_t num_parameters)
 {
@@ -270,6 +259,22 @@ spdk_shell_init(const SHELL_CMD_TABLE_T* shell_cmd_table)
 	memset(g_shell_common, 0, sizeof(SHELL_COMMON_T));
 
 	g_shell_common->cmd_table = shell_cmd_table;
+}
+
+const char*
+spdk_shell_common_get_parameter_string(uint32_t parameters_index)
+{
+	UINT32 num_parameters = g_shell_common->num_parameters;
+	if (parameters_index >= num_parameters)
+	{
+		printf("[Shell] Enter a parameter - %d\n", parameters_index);
+
+		return NULL;
+	}
+
+	const char* parameter_string = g_shell_common->parameter_list[parameters_index];
+
+	return parameter_string;
 }
 
 void

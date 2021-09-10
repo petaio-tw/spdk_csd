@@ -56,9 +56,6 @@ shell_common_get_command_ready(void)
 	return cmd_line_ready;
 }
 
-const char*
-shell_common_get_parameter_string(UINT32 parameters_index);
-
 INT32
 shell_common_get_parameter_int32(UINT32 parameters_index);
 

@@ -5,6 +5,8 @@
 	spdk_shell_init;
 	spdk_shell_task;
 	spdk_shell_cmd_print_list;
+	spdk_shell_common_get_parameters_uint32;
+	spdk_shell_common_get_parameter_string;	
 
 	local: *;
 };
