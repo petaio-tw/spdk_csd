@@ -105,8 +105,8 @@ struct spdk_csd_compute_engine_descriptor_data {
 
 	uint8_t reserved0;
 	struct {
-		uint8_t	reserved1		: 7;
 		uint8_t	activation		: 1;
+		uint8_t	reserved1		: 7;
 	};
 	uint16_t compute_engine_identifier;
 };
@@ -118,9 +118,9 @@ struct spdk_csd_program_information_data {
 
 	struct
 	{
-		uint8_t	reserved0		: 6;
-		uint8_t	program_entry_type	: 1;
 		uint8_t	program_entry_occupied	: 1;
+		uint8_t	program_entry_type	: 1;
+		uint8_t	reserved0		: 6;
 	};
 
 	uint8_t number_of_associated_compute_engines;

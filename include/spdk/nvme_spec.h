@@ -1048,10 +1048,10 @@ union spdk_nvme_cmd_cdw2 {
 	uint32_t raw;
 
 	struct {
-		/* Compute Engine ID */
-		uint32_t ceid    : 16;
 		/* Program identifier */
 		uint32_t pid     : 16;
+		/* Compute Engine ID */
+		uint32_t ceid    : 16;
 	} csd_execute_program;
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw2) == 4, "Incorrect size");
@@ -1060,9 +1060,9 @@ union spdk_nvme_cmd_cdw3 {
 	uint32_t raw;
 
 	struct {
-		uint32_t reserved : 16;
 		/* Memory Range Set ID */
 		uint32_t rsid     : 16;
+		uint32_t reserved : 16;
 	} csd_execute_program;
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw3) == 4, "Incorrect size");
@@ -1187,26 +1187,26 @@ union spdk_nvme_cmd_cdw10 {
 	} resv_acquire;
 
 	struct {
-		/* compute engine identifier */
-		uint16_t ceid;
 		/* Program identifier */
 		uint16_t pid;
+		/* compute engine identifier */
+		uint16_t ceid;
 	} csd_program_activation;
 
 	struct {
-		uint32_t reserved  : 7;
-		/* Unload */
-		uint32_t unl       : 1;
-		/* Program Type */
-		uint32_t ptype     : 8;
 		/* Program identifier */
 		uint32_t pid     : 16;
+		/* Program Type */
+		uint32_t ptype     : 8;
+		/* Unload */
+		uint32_t unl       : 1;
+		uint32_t reserved  : 7;
 	} csd_load_program;
 
 	struct {
-		uint16_t reserved;
 		/* range set identifier */
 		uint16_t rsid;
+		uint16_t reserved;
 	} csd_delete_memory_range_set;
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw10) == 4, "Incorrect size");
@@ -1291,9 +1291,9 @@ union spdk_nvme_cmd_cdw11 {
 	} dsm;
 
 	struct {
-		uint32_t reserved : 31;
 		/* action */
 		uint32_t action	  : 1;
+		uint32_t reserved : 31;
 	} csd_program_activation;
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw11) == 4, "Incorrect size");
