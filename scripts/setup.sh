@@ -720,6 +720,19 @@ function reset_freebsd() {
 	kldunload nic_uio.ko || true
 }
 
+function add_csd_to_allowed_list() {
+	[[ $1 != "config" ]] && return
+
+	for nvme_dev in $(ls /dev/nvme* 2>/dev/null | grep -E 'nvme*[0-9]$'); do
+		./nvme cp-id-ctrl ${nvme_dev} > /dev/null 2>&1
+		if [[ $? == 0 ]]; then
+			echo "find csd:${nvme_dev}"
+			NVME_ALLOWED+="$(cat /sys/class/nvme/${nvme_dev##*/}/address) "
+		fi
+	done
+	echo "allowed bdf list:$NVME_ALLOWED"
+}
+
 CMD=reset cache_pci_bus
 
 mode=$1
@@ -746,6 +759,8 @@ if [ -z "$TARGET_USER" ]; then
 		TARGET_USER=$(logname 2> /dev/null) || true
 	fi
 fi
+
+add_csd_to_allowed_list "$mode"
 
 collect_devices "$mode"
 
