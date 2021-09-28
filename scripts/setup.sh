@@ -723,10 +723,9 @@ function reset_freebsd() {
 function add_csd_to_allowed_list() {
 	[[ $1 != "config" ]] && return
 
-	for nvme_dev in $(ls /dev/nvme* 2>/dev/null | grep -E 'nvme*[0-9]$'); do
-		./nvme cp-id-ctrl ${nvme_dev} > /dev/null 2>&1
-		if [[ $? == 0 ]]; then
-			echo "find csd:${nvme_dev}"
+	for nvme_dev in $(ls /dev/nvme* 2>/dev/null | grep -E 'nvme*[0-9]$'); do		
+		if ./nvme cp-id-ctrl ${nvme_dev} > /dev/null 2>&1; then
+			echo "find csd:${nvme_dev}"		
 			NVME_ALLOWED+="$(cat /sys/class/nvme/${nvme_dev##*/}/address) "
 		fi
 	done
@@ -745,6 +744,8 @@ fi
 : ${PCI_ALLOWED:=""}
 : ${PCI_BLOCKED:=""}
 
+add_csd_to_allowed_list "$mode"
+
 if [ -n "$NVME_ALLOWED" ]; then
 	PCI_ALLOWED="$PCI_ALLOWED $NVME_ALLOWED"
 fi
@@ -759,8 +760,6 @@ if [ -z "$TARGET_USER" ]; then
 		TARGET_USER=$(logname 2> /dev/null) || true
 	fi
 fi
-
-add_csd_to_allowed_list "$mode"
 
 collect_devices "$mode"
 
