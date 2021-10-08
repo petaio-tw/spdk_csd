@@ -1044,6 +1044,29 @@ union spdk_nvme_feat_reservation_persistence {
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_feat_reservation_persistence) == 4, "Incorrect size");
 
+union spdk_nvme_cmd_cdw2 {
+	uint32_t raw;
+
+	struct {
+		/* Program identifier */
+		uint32_t pid     : 16;
+		/* Compute Engine ID */
+		uint32_t ceid    : 16;
+	} csd_execute_program;
+};
+SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw2) == 4, "Incorrect size");
+
+union spdk_nvme_cmd_cdw3 {
+	uint32_t raw;
+
+	struct {
+		/* Memory Range Set ID */
+		uint32_t rsid     : 16;
+		uint32_t reserved : 16;
+	} csd_execute_program;
+};
+SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw3) == 4, "Incorrect size");
+
 union spdk_nvme_cmd_cdw10 {
 	uint32_t raw;
 	struct {
@@ -1162,6 +1185,29 @@ union spdk_nvme_cmd_cdw10 {
 		uint32_t rtype     : 8;
 		uint32_t reserved2 : 16;
 	} resv_acquire;
+
+	struct {
+		/* Program identifier */
+		uint16_t pid;
+		/* compute engine identifier */
+		uint16_t ceid;
+	} csd_program_activation;
+
+	struct {
+		/* Program identifier */
+		uint32_t pid     : 16;
+		/* Program Type */
+		uint32_t ptype     : 8;
+		/* Unload */
+		uint32_t unl       : 1;
+		uint32_t reserved  : 7;
+	} csd_load_program;
+
+	struct {
+		/* range set identifier */
+		uint16_t rsid;
+		uint16_t reserved;
+	} csd_delete_memory_range_set;
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw10) == 4, "Incorrect size");
 
@@ -1243,6 +1289,12 @@ union spdk_nvme_cmd_cdw11 {
 		uint32_t ad       : 1;
 		uint32_t reserved : 29;
 	} dsm;
+
+	struct {
+		/* action */
+		uint32_t action	  : 1;
+		uint32_t reserved : 31;
+	} csd_program_activation;
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw11) == 4, "Incorrect size");
 
@@ -1257,9 +1309,19 @@ struct spdk_nvme_cmd {
 	/* dword 1 */
 	uint32_t nsid;		/* namespace identifier */
 
-	/* dword 2-3 */
-	uint32_t rsvd2;
-	uint32_t rsvd3;
+	/* dword 2 : command-specific */
+	union {
+		uint32_t rsvd2;
+		uint32_t cdw2;
+		union spdk_nvme_cmd_cdw2 cdw2_bits;
+	};
+
+	/* dword 3 : command-specific */
+	union {
+		uint32_t rsvd3;
+		uint32_t cdw3;
+		union spdk_nvme_cmd_cdw3 cdw3_bits;
+	};
 
 	/* dword 4-5 */
 	uint64_t mptr;		/* metadata pointer */
