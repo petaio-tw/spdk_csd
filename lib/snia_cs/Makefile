@@ -34,14 +34,12 @@
 SPDK_ROOT_DIR := $(abspath $(CURDIR)/../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
-DIRS-y += bdev_shell cs_shell
+SO_VER := 1
+SO_MINOR := 0
 
-.PHONY: all clean $(DIRS-y)
+C_SRCS = cs_internal.c cs_msg.c
+LIBNAME = snia_cs
 
-all: $(DIRS-y)
-	@:
+SPDK_MAP_FILE = $(abspath $(CURDIR)/spdk_cs.map)
 
-clean: $(DIRS-y)
-	@:
-
-include $(SPDK_ROOT_DIR)/mk/spdk.subdirs.mk
+include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk

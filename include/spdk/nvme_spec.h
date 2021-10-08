@@ -3244,6 +3244,7 @@ enum spdk_nvme_csi {
 	SPDK_NVME_CSI_NVM	= 0x0,
 	SPDK_NVME_CSI_KV	= 0x1,
 	SPDK_NVME_CSI_ZNS	= 0x2,
+	SPDK_NVME_CSI_CP	= 0xC0,
 };
 
 enum spdk_nvme_secure_erase_setting {
