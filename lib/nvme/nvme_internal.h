@@ -655,6 +655,11 @@ enum nvme_ctrlr_state {
 	NVME_CTRLR_STATE_WAIT_FOR_IDENTIFY_ID_DESCS,
 
 	/**
+	 * Construct Namespace data structures of the CSx
+	 */
+	NVME_CTRLR_STATE_CONSTRUCT_CS_NS,
+
+	/**
 	 * Configure AER of the controller.
 	 */
 	NVME_CTRLR_STATE_CONFIGURE_AER,
@@ -768,6 +773,8 @@ struct spdk_nvme_ctrlr {
 	/** Array of namespaces indexed by nsid - 1 */
 	struct spdk_nvme_ns		*ns;
 
+	struct spdk_nvme_ns		cs_ns;	
+
 	uint32_t			num_ns;
 
 	bool				is_removed;
@@ -845,6 +852,8 @@ struct spdk_nvme_ctrlr {
 	 * Zoned Namespace Command Set Specific Identify Controller data.
 	 */
 	struct spdk_nvme_zns_ctrlr_data	*cdata_zns;
+
+	// TODO: cdata_cp;
 
 	/**
 	 * Keep track of active namespaces

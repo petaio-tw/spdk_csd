@@ -67,6 +67,8 @@ extern "C" {
  */
 #define SPDK_NVME_DATASET_MANAGEMENT_MAX_RANGES	256
 
+#define SPDK_NVME_CP_NSID			100
+
 /**
  * Maximum number of blocks that may be specified in a single dataset management range.
  */
@@ -2320,6 +2322,8 @@ struct spdk_nvme_zns_ctrlr_data {
 	uint8_t			reserved1[4095];
 };
 SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_zns_ctrlr_data) == 4096, "Incorrect size");
+
+// TODO: spdk_nvme_cp_ctrlr_data
 
 struct __attribute__((packed)) spdk_nvme_primary_ctrl_capabilities {
 	/**  controller id */

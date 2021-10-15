@@ -39,6 +39,7 @@
 #include "spdk/env.h"
 #include "spdk/string.h"
 #include "spdk/endian.h"
+#include "spdk/nvme_spec.h"
 
 struct nvme_active_ns_ctx;
 
@@ -1201,6 +1202,8 @@ nvme_ctrlr_state_string(enum nvme_ctrlr_state state)
 		return "identify ns iocs specific";
 	case NVME_CTRLR_STATE_WAIT_FOR_IDENTIFY_NS_IOCS_SPECIFIC:
 		return "wait for identify ns iocs specific";
+	case NVME_CTRLR_STATE_CONSTRUCT_CS_NS:
+		return "construct CSx namespace";		
 	case NVME_CTRLR_STATE_CONFIGURE_AER:
 		return "configure AER";
 	case NVME_CTRLR_STATE_WAIT_FOR_CONFIGURE_AER:
@@ -1871,6 +1874,8 @@ nvme_ctrlr_identify_iocs_specific(struct spdk_nvme_ctrlr *ctrlr)
 		goto error;
 	}
 
+	// TODO: nvme_ctrlr_cmd_identify, SPDK_NVME_IDENTIFY_CTRLR_IOCS, SPDK_NVME_CSI_CP
+
 	return 0;
 
 error:
@@ -2202,7 +2207,7 @@ nvme_ctrlr_identify_namespaces_iocs_specific_next(struct spdk_nvme_ctrlr *ctrlr,
 	ns = spdk_nvme_ctrlr_get_ns(ctrlr, nsid);
 	if (ns == NULL) {
 		/* No first/next active NS, move on to the next state */
-		nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_CONFIGURE_AER,
+		nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_CONSTRUCT_CS_NS,
 				     ctrlr->opts.admin_timeout_ms);
 		return 0;
 	}
@@ -2213,7 +2218,7 @@ nvme_ctrlr_identify_namespaces_iocs_specific_next(struct spdk_nvme_ctrlr *ctrlr,
 		ns = spdk_nvme_ctrlr_get_ns(ctrlr, nsid);
 		if (ns == NULL) {
 			/* no namespace with (supported) iocs specific data found */
-			nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_CONFIGURE_AER,
+			nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_CONSTRUCT_CS_NS,
 					     ctrlr->opts.admin_timeout_ms);
 			return 0;
 		}
@@ -2284,7 +2289,7 @@ nvme_ctrlr_identify_namespaces_iocs_specific(struct spdk_nvme_ctrlr *ctrlr)
 {
 	if (!nvme_ctrlr_multi_iocs_enabled(ctrlr)) {
 		/* Multi IOCS not supported/enabled, move on to the next state */
-		nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_CONFIGURE_AER,
+		nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_CONSTRUCT_CS_NS,
 				     ctrlr->opts.admin_timeout_ms);
 		return 0;
 	}
@@ -2668,6 +2673,15 @@ nvme_ctrlr_update_namespaces(struct spdk_nvme_ctrlr *ctrlr)
 			nvme_ns_destruct(ns);
 		}
 	}
+}
+
+static int
+nvme_ctrlr_construct_cs_namespaces(struct spdk_nvme_ctrlr *ctrlr)
+{
+	ctrlr->cs_ns.ctrlr = ctrlr;
+	ctrlr->cs_ns.csi = SPDK_NVME_CSI_CP;
+
+	return 0;
 }
 
 static int
@@ -3452,6 +3466,12 @@ nvme_ctrlr_process_init(struct spdk_nvme_ctrlr *ctrlr)
 		rc = nvme_ctrlr_identify_namespaces_iocs_specific(ctrlr);
 		break;
 
+	case NVME_CTRLR_STATE_CONSTRUCT_CS_NS:
+		nvme_ctrlr_construct_cs_namespaces(ctrlr);
+		nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_CONFIGURE_AER,
+				     ctrlr->opts.admin_timeout_ms);
+		break;
+
 	case NVME_CTRLR_STATE_CONFIGURE_AER:
 		rc = nvme_ctrlr_configure_aer(ctrlr);
 		break;
@@ -3922,6 +3942,10 @@ spdk_nvme_ctrlr_get_next_active_ns(struct spdk_nvme_ctrlr *ctrlr, uint32_t prev_
 struct spdk_nvme_ns *
 spdk_nvme_ctrlr_get_ns(struct spdk_nvme_ctrlr *ctrlr, uint32_t nsid)
 {
+	if (nsid == SPDK_NVME_CP_NSID) {
+		return &ctrlr->cs_ns;		
+	}
+
 	if (nsid < 1 || nsid > ctrlr->num_ns) {
 		return NULL;
 	}

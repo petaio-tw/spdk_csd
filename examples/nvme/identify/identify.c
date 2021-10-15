@@ -931,6 +931,8 @@ csi_name(enum spdk_nvme_csi csi)
 		return "KV";
 	case SPDK_NVME_CSI_ZNS:
 		return "ZNS";
+	case SPDK_NVME_CSI_CP:
+		return "CP";
 	default:
 		if (csi >= 0x30 && csi <= 0x3f) {
 			return "Vendor specific";

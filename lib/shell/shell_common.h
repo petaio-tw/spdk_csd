@@ -26,7 +26,7 @@ extern SHELL_COMMON_T g_shell_common[1];
 void
 shell_common_prompt(void);
 
-void
+bool
 shell_common_get_byte(void);
 
 void

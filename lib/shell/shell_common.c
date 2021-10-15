@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include "string_util.h"
 #include "shell_common.h"
 
@@ -14,16 +15,16 @@ shell_common_prompt(void)
 	printf("pid:%d> ", getpid());	
 }
 
-void
+bool
 shell_common_get_byte(void)
 {
 	UINT32 cmd_line_ready = g_shell_common->cmd_line_ready;
 	if (cmd_line_ready == 1)
 	{
-		return;
+		return true;
 	}
 
-	char letter = (char)getchar();
+	int letter = getchar();
 
 	if (letter == 0x7F || letter == '\b')
 	{
@@ -50,13 +51,15 @@ shell_common_get_byte(void)
 
 				break;
 			}
+			case EOF:
+				return false;
 			default:
 			{
 				UINT32 cmd_line_index = g_shell_common->cmd_line_index;
 				if (cmd_line_index < (SHELL_COMMON_MAX_COMMAND_LINE_BUF - 1))
 				{
 					g_shell_common->cmd_line_index = cmd_line_index + 1;
-					g_shell_common->cmd_line_string[cmd_line_index] = letter;
+					g_shell_common->cmd_line_string[cmd_line_index] = (char)letter;
 				}
 				else
 				{
@@ -72,6 +75,8 @@ shell_common_get_byte(void)
 			}
 		}
 	}
+
+	return true;
 }
 
 
@@ -282,7 +287,9 @@ spdk_shell_task(void)
 {
 	while (1)
 	{
-		shell_common_get_byte();
+		if (shell_common_get_byte() == false) {
+			exit(0);
+		}
 		shell_common_run();
 	}
 }

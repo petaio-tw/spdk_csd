@@ -4446,7 +4446,8 @@ spdk_bs_load(struct spdk_bs_dev *dev, struct spdk_bs_opts *o,
 
 	SPDK_DEBUGLOG(blob, "Loading blobstore from dev %p\n", dev);
 
-	if ((SPDK_BS_PAGE_SIZE % dev->blocklen) != 0) {
+	if ((dev->blocklen == 0) ||
+	    (SPDK_BS_PAGE_SIZE % dev->blocklen) != 0) {
 		SPDK_DEBUGLOG(blob, "unsupported dev block length of %d\n", dev->blocklen);
 		dev->destroy(dev);
 		cb_fn(cb_arg, NULL, -EINVAL);

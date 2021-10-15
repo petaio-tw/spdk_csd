@@ -140,7 +140,10 @@ static struct spdk_thread *g_bdev_nvme_init_thread;
 static struct spdk_poller *g_hotplug_poller;
 static struct spdk_poller *g_hotplug_probe_poller;
 static struct spdk_nvme_probe_ctx *g_hotplug_probe_ctx;
-
+static void
+bdev_cs_populate_namespace(struct nvme_ctrlr *nvme_ctrlr,
+			   struct nvme_ns *cs_ns,
+			   struct nvme_async_probe_ctx *nvme_ctx);
 static void nvme_ctrlr_populate_namespaces(struct nvme_ctrlr *nvme_ctrlr,
 		struct nvme_async_probe_ctx *ctx);
 static void nvme_ctrlr_populate_namespaces_done(struct nvme_ctrlr *nvme_ctrlr,
@@ -201,8 +204,11 @@ static populate_namespace_fn g_populate_namespace_fn[] = {
 	NULL,
 	nvme_ctrlr_populate_standard_namespace,
 	bdev_ocssd_populate_namespace,
+	bdev_cs_populate_namespace,
 };
 
+static void
+bdev_cs_depopulate_namespace(struct nvme_ns *cs_ns);
 typedef void (*depopulate_namespace_fn)(struct nvme_ns *nvme_ns);
 static void nvme_ctrlr_depopulate_standard_namespace(struct nvme_ns *nvme_ns);
 
@@ -210,6 +216,7 @@ static depopulate_namespace_fn g_depopulate_namespace_fn[] = {
 	NULL,
 	nvme_ctrlr_depopulate_standard_namespace,
 	bdev_ocssd_depopulate_namespace,
+	bdev_cs_depopulate_namespace,
 };
 
 typedef void (*config_json_namespace_fn)(struct spdk_json_write_ctx *w,
@@ -1468,15 +1475,32 @@ nvme_disk_create(struct spdk_bdev *disk, const char *base_name,
 		disk->max_open_zones = spdk_nvme_zns_ns_get_max_open_zones(ns);
 		disk->max_active_zones = spdk_nvme_zns_ns_get_max_active_zones(ns);
 		break;
+	case SPDK_NVME_CSI_CP:
+		disk->product_name = "NVMe CP disk";
+		break;
 	default:
 		SPDK_ERRLOG("unsupported CSI: %u\n", csi);
 		return -ENOTSUP;
 	}
 
-	disk->name = spdk_sprintf_alloc("%sn%d", base_name, spdk_nvme_ns_get_id(ns));
-	if (!disk->name) {
-		return -ENOMEM;
-	}
+	if (csi == SPDK_NVME_CSI_CP) {
+		disk->name = spdk_sprintf_alloc("%scs", base_name);
+		if (!disk->name) {
+			return -ENOMEM;
+		}
+
+		disk->ctxt = ctx;
+		disk->fn_table = &nvmelib_fn_table;
+		disk->module = &nvme_if;
+
+		return 0;
+
+	} else {
+		disk->name = spdk_sprintf_alloc("%sn%d", base_name, spdk_nvme_ns_get_id(ns));
+		if (!disk->name) {
+			return -ENOMEM;
+		}		
+	}	
 
 	disk->write_cache = 0;
 	if (cdata->vwc.present) {
@@ -1599,6 +1623,28 @@ bdev_nvme_compare_ns(struct spdk_nvme_ns *ns1, struct spdk_nvme_ns *ns2)
 	return memcmp(nsdata1->nguid, nsdata2->nguid, sizeof(nsdata1->nguid)) == 0 &&
 	       nsdata1->eui64 == nsdata2->eui64 &&
 	       uuid1 != NULL && uuid2 != NULL && spdk_uuid_compare(uuid1, uuid2) == 0;
+}
+
+static void
+bdev_cs_populate_namespace(struct nvme_ctrlr *nvme_ctrlr,
+			   struct nvme_ns *cs_ns,
+			   struct nvme_async_probe_ctx *nvme_ctx)
+{
+	struct spdk_nvme_ctrlr	*ctrlr = nvme_ctrlr->ctrlr;
+	struct spdk_nvme_ns	*ns;
+	int			rc = 0;
+
+	ns = spdk_nvme_ctrlr_get_ns(ctrlr, cs_ns->id);
+	if (!ns) {
+		rc = -EINVAL;
+		goto done;
+	}
+
+	cs_ns->ns = ns;
+	cs_ns->populated = true;
+	rc = nvme_bdev_create(nvme_ctrlr, cs_ns);
+done:
+	nvme_ctrlr_populate_namespace_done(nvme_ctx, cs_ns, rc);
 }
 
 static void
@@ -1725,6 +1771,12 @@ timeout_cb(void *cb_arg, struct spdk_nvme_ctrlr *ctrlr,
 }
 
 static void
+bdev_cs_depopulate_namespace(struct nvme_ns *cs_ns)
+{
+	// TODO:
+}
+
+static void
 nvme_ctrlr_depopulate_standard_namespace(struct nvme_ns *nvme_ns)
 {
 	struct nvme_bdev *bdev;
@@ -1839,6 +1891,22 @@ nvme_ctrlr_populate_namespaces(struct nvme_ctrlr *nvme_ctrlr,
 
 		if (nvme_ns->populated && !ns_is_active) {
 			nvme_ctrlr_depopulate_namespace(nvme_ctrlr, nvme_ns);
+		}
+	}
+
+	if (nvme_ctrlr->cs_namespace) {
+		struct nvme_ns	*cs_ns = nvme_ctrlr->cs_namespace;
+		if (!cs_ns->populated) {
+			cs_ns->id = SPDK_NVME_CP_NSID;
+			cs_ns->ctrlr = nvme_ctrlr;
+			cs_ns->type = NVME_NS_CS;
+
+			cs_ns->bdev = NULL;
+
+			if (ctx) {
+				ctx->populates_in_progress++;
+			}
+			nvme_ctrlr_populate_namespace(nvme_ctrlr, cs_ns, ctx);		
 		}
 	}
 
@@ -2121,6 +2189,13 @@ nvme_ctrlr_create(struct spdk_nvme_ctrlr *ctrlr,
 
 		assert(num_ns == nvme_ctrlr->num_ns);
 	}
+
+	nvme_ctrlr->cs_namespace = calloc(1, sizeof(struct nvme_ns));
+	if (!nvme_ctrlr->cs_namespace) {
+		SPDK_ERRLOG("Failed to allocate block namespaces pointer\n");
+		rc = -ENOMEM;
+		goto err;
+	}	
 
 	trid_entry = calloc(1, sizeof(*trid_entry));
 	if (trid_entry == NULL) {
@@ -2439,6 +2514,8 @@ nvme_ctrlr_populate_namespaces_done(struct nvme_ctrlr *nvme_ctrlr,
 			return;
 		}
 	}
+
+	ctx->names[j] = nvme_ctrlr->cs_namespace->bdev->disk.name;
 
 	populate_namespaces_cb(ctx, j, 0);
 }

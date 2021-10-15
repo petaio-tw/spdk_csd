@@ -254,7 +254,8 @@ void cs_msg_attach_csx_done_cb(void *cb_ctx) {
 	assert(msg_ctx->rc != CS_MSG_RC_BUSY);
 	if (msg_ctx->rc == CS_MSG_RC_SUCESS) {
 		TAILQ_INSERT_TAIL(&g_cs_mgmt.csx_list, msg_ctx->csx, next);
-		SPDK_NOTICELOG("CSx:%s\n", msg_ctx->csx->bdev_names[(msg_ctx->csx->bdev_count - 1)]);
+		//SPDK_NOTICELOG("CSx:%s\n", msg_ctx->csx->bdev_names[(msg_ctx->csx->bdev_count - 1)]);
+		SPDK_NOTICELOG("CSx:%s\n", msg_ctx->csx->bdev_names[msg_ctx->csx->bdev_count]);
 	} else {
 		SPDK_ERRLOG("attach csx fail\n");
 	}

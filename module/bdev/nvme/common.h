@@ -69,6 +69,7 @@ enum nvme_ns_type {
 	NVME_NS_UNKNOWN		= 0,
 	NVME_NS_STANDARD	= 1,
 	NVME_NS_OCSSD		= 2,
+	NVME_NS_CS 		= 3,
 };
 
 struct nvme_ns {
@@ -123,6 +124,7 @@ struct nvme_ctrlr {
 	uint32_t				num_ns;
 	/** Array of pointers to namespaces indexed by nsid - 1 */
 	struct nvme_ns				**namespaces;
+	struct nvme_ns				*cs_namespace;
 
 	struct spdk_opal_dev			*opal_dev;
 
