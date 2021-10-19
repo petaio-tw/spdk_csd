@@ -53,6 +53,8 @@
 // cs shell command
 static
 int32_t cs_shell_cmd_scan_csx(void);
+static
+int32_t cs_shell_get_csxes(void);
 //-----------------------------------------
 static 
 int cs_shell_parse_arg(int ch, char *arg);
@@ -73,7 +75,8 @@ static const SHELL_CMD_TABLE_T shell_cmd_table[] =
 {
 	// Command,			Explanation,				Function pointer
 	{"help",			"print command list",			spdk_shell_cmd_print_list},
-	{"scsx",			"scan csx",				cs_shell_cmd_scan_csx},			
+	{"scsx",			"scan csx",				cs_shell_cmd_scan_csx},
+	{"csxes",			"get csxes",				cs_shell_get_csxes},		
 	{NULL, NULL, NULL},		// should end with NULL
 };
 
@@ -139,6 +142,25 @@ main(int argc, char **argv)
 static
 int32_t cs_shell_cmd_scan_csx(void) {
 	cs_scan_csxes();
+	cs_get_cse_list();
+	return 0;
+}
+
+static
+int32_t cs_shell_get_csxes(void) {
+	uint32_t length;
+	char *buf = NULL;
+
+	csGetCSxFromPath(NULL, &length, NULL);
+	printf("str length of CSxes = %d\n", length);
+
+	buf = calloc(1, length);
+	if (buf != NULL) {
+		csGetCSxFromPath(NULL, &length, buf);
+		printf("CSxes = %s\n", buf);
+		free(buf);
+	}
+
 	return 0;
 }
 

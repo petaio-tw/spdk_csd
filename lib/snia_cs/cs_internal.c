@@ -21,6 +21,8 @@
 #include "spdk/queue.h"
 #include "spdk/thread.h"
 #include "spdk/log.h"
+#include "spdk/nvme_csd_spec.h"
+#include "spdk/util.h"
 
 /**********************************************************/
 /*                                                        */  
@@ -67,7 +69,10 @@ typedef struct _poll_evnet {
 /**********************************************************/
 static
 void cs_msg_attach_csx_done_cb(void *cb_ctx);
-
+static
+void cs_msg_get_cse_cnt_done_cb(void *cb_ctx);
+static
+void cs_msg_get_cse_list_done_cb(void *cb_ctx);
 /**********************************************************/
 /*                                                        */
 /* STATIC VARIABLE DECLARATIONS                           */
@@ -200,7 +205,7 @@ CS_STATUS cs_scan_csxes(void)
 
 		// init cb
 		msg_ctx->cpl_cb_fn = cs_msg_attach_csx_done_cb;
-		msg_ctx->cb_ctx = msg_ctx;
+		msg_ctx->cpl_cb_ctx = msg_ctx;
 
 		// send msg cmd
 		if (spdk_thread_send_msg(g_cs_mgmt.app_thread, cs_msg_attach_nvme_csx, msg_ctx) < 0) {
@@ -228,9 +233,71 @@ CS_STATUS cs_scan_csxes(void)
 	}
 
 	pclose(fp);
-	while(g_poll_event.issued_msg_cnt != g_poll_event.completed_msg_cnt);
+	while (g_poll_event.issued_msg_cnt != g_poll_event.completed_msg_cnt);
 
 	return sts;
+}
+
+CS_STATUS cs_get_cse_list(void)
+{	
+	CS_STATUS sts = CS_SUCCESS;
+
+	memset(&g_poll_event, 0, sizeof(g_poll_event));
+
+	cs_csx_t *csx;
+	TAILQ_FOREACH(csx, &g_cs_mgmt.csx_list, next) {
+		bool b_clean_up = true;
+
+		// allocate msg_ctx
+		cs_msg_get_cse_list_ctx_t *msg_ctx = calloc(1, sizeof(*msg_ctx));
+		if (msg_ctx == NULL) {
+			SPDK_ERRLOG("calloc fail\n");
+			goto cleanup;
+		}
+
+		// init msg_ctx
+		msg_ctx->cpl_cb_fn = cs_msg_get_cse_cnt_done_cb;
+		msg_ctx->cpl_cb_ctx = msg_ctx;
+
+		msg_ctx->csx = csx;
+		csx->cse_list_size = sizeof(csx->p_cse_list->number_of_compute_engine);
+		csx->cse_list_size = SPDK_ALIGN_CEIL(csx->cse_list_size, sizeof(uint32_t));
+
+		csx->p_cse_list = spdk_zmalloc(csx->cse_list_size, 64, NULL,
+					SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+		if (csx->p_cse_list == NULL) {
+			SPDK_ERRLOG("spdk_zmalloc fail\n");
+			goto cleanup;
+		}
+
+
+		// send msg cmd
+		if (spdk_thread_send_msg(g_cs_mgmt.app_thread, cs_msg_get_cse_list, msg_ctx) < 0) {
+			SPDK_ERRLOG("send cs_msg fail\n");
+			goto cleanup;
+		}
+
+		g_poll_event.issued_msg_cnt++;
+		b_clean_up = false;
+
+	cleanup:
+		if (b_clean_up == true) {
+			if (csx->p_cse_list != NULL) {
+				spdk_free(csx->p_cse_list);
+				csx->cse_list_size = 0;
+			}
+
+			if (msg_ctx != NULL) {
+				free(msg_ctx);
+			}
+
+			sts = CS_NOT_ENOUGH_MEMORY;
+			break;
+		}					
+	}
+
+	while (g_poll_event.issued_msg_cnt != g_poll_event.completed_msg_cnt);
+	return sts;	
 }
 
 //---------------------------------------------
@@ -238,9 +305,43 @@ CS_STATUS cs_scan_csxes(void)
 //
 CS_STATUS csGetCSxFromPath(char *Path, unsigned int *Length, char *DevName)
 {
+	cs_csx_t *csx;
+
+	if (DevName == NULL) {
+		*Length = 0;
+		TAILQ_FOREACH(csx, &g_cs_mgmt.csx_list, next) {
+			// add extra one for comma seperator or end of string
+			*Length += (strlen(csx->bdev_names[csx->bdev_count]) + 1);
+		}
+	} else {
+		int cur_len = 0;
+		int max_len = *Length;
+
+		TAILQ_FOREACH(csx, &g_cs_mgmt.csx_list, next) {
+			// add extra one for comma seperator or end of string
+			int name_size = (strlen(csx->bdev_names[csx->bdev_count]) + 1);
+
+			if ((cur_len + name_size) > max_len) {
+				return CS_NOT_ENOUGH_MEMORY;
+			}
+
+			// has name entry in front, replace end of string to comma seperator
+			if (cur_len != 0) {
+				DevName[(cur_len - 1)] = ';';
+			}
+			// auto add end of string
+			sprintf(&DevName[cur_len], "%s", csx->bdev_names[csx->bdev_count]);
+			cur_len += name_size;
+		}
+	}
+
 	return CS_SUCCESS;
 }
 
+CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer)
+{
+	return CS_SUCCESS;
+}
 /**********************************************************/
 /*                                                        */
 /* LOCAL SUBPROGRAM BODIES                                */
@@ -248,19 +349,102 @@ CS_STATUS csGetCSxFromPath(char *Path, unsigned int *Length, char *DevName)
 /*                                                        */
 /**********************************************************/
 static
-void cs_msg_attach_csx_done_cb(void *cb_ctx) {
-
+void cs_msg_attach_csx_done_cb(void *cb_ctx) 
+{
 	cs_msg_attach_nvme_csx_ctx_t *msg_ctx = (cs_msg_attach_nvme_csx_ctx_t *)cb_ctx;
-	assert(msg_ctx->rc != CS_MSG_RC_BUSY);
+
 	if (msg_ctx->rc == CS_MSG_RC_SUCESS) {
 		TAILQ_INSERT_TAIL(&g_cs_mgmt.csx_list, msg_ctx->csx, next);
 		//SPDK_NOTICELOG("CSx:%s\n", msg_ctx->csx->bdev_names[(msg_ctx->csx->bdev_count - 1)]);
-		SPDK_NOTICELOG("CSx:%s\n", msg_ctx->csx->bdev_names[msg_ctx->csx->bdev_count]);
+		msg_ctx->csx->csx_name = msg_ctx->csx->bdev_names[msg_ctx->csx->bdev_count];
+		SPDK_NOTICELOG("CSx:%s\n", msg_ctx->csx->csx_name);
 	} else {
 		SPDK_ERRLOG("attach csx fail\n");
 	}
 
 	free(msg_ctx);
 	g_poll_event.completed_msg_cnt++;
+}
+
+static
+void cs_msg_get_cse_cnt_done_cb(void *cb_ctx)
+{
+	cs_msg_get_cse_list_ctx_t *msg_ctx = (cs_msg_get_cse_list_ctx_t *)cb_ctx;
+	cs_csx_t *csx = msg_ctx->csx;
+	
+	csx->cse_cnt = (msg_ctx->rc == CS_MSG_RC_SUCESS) ? csx->p_cse_list->number_of_compute_engine : 0;
+	// free cse list in csx first to allocate mem for fully cse list
+	if (csx->p_cse_list != NULL) {
+		spdk_free(csx->p_cse_list);
+		csx->cse_list_size = 0;
+	}
+
+	if (msg_ctx->rc == CS_MSG_RC_SUCESS) {
+		bool b_clean_up = true;
+
+		SPDK_NOTICELOG("%s:cse_cnt=%d\n", csx->csx_name, csx->cse_cnt);
+		
+		// allocate msg_ctx
+		cs_msg_get_cse_list_ctx_t *req_msg_ctx = calloc(1, sizeof(*req_msg_ctx));
+		if (req_msg_ctx == NULL) {
+			SPDK_ERRLOG("calloc fail\n");
+			goto cleanup;
+		}
+
+		// init msg_ctx
+		req_msg_ctx->cpl_cb_fn = cs_msg_get_cse_list_done_cb;
+		req_msg_ctx->cpl_cb_ctx = req_msg_ctx;
+
+		req_msg_ctx->csx = csx;
+		csx->cse_list_size = sizeof(struct spdk_csd_compute_engine_list) + (csx->cse_cnt * sizeof(uint16_t));
+		csx->cse_list_size = SPDK_ALIGN_CEIL(csx->cse_list_size, sizeof(uint32_t));
+
+		csx->p_cse_list = spdk_zmalloc(csx->cse_list_size, 64, NULL,
+					SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+		if (csx->p_cse_list == NULL) {
+			SPDK_ERRLOG("spdk_zmalloc fail\n");
+			goto cleanup;
+		}
+
+		// send msg cmd
+		if (spdk_thread_send_msg(g_cs_mgmt.app_thread, cs_msg_get_cse_list, req_msg_ctx) < 0) {
+			SPDK_ERRLOG("send cs_msg fail\n");
+			goto cleanup;
+		}
+
+		b_clean_up = false;
+	cleanup:
+		if (b_clean_up == true) {
+			if (csx->p_cse_list != NULL) {
+				spdk_free(csx->p_cse_list);
+				csx->cse_list_size = 0;
+			}
+
+			if (req_msg_ctx != NULL) {
+				free(req_msg_ctx);
+			}
+
+			g_poll_event.completed_msg_cnt++;
+		}
+	} else {
+		g_poll_event.completed_msg_cnt++;
+	}
+
+	free(msg_ctx);
+}
+
+static
+void cs_msg_get_cse_list_done_cb(void *cb_ctx)
+{
+	cs_msg_get_cse_list_ctx_t *msg_ctx = (cs_msg_get_cse_list_ctx_t *)cb_ctx;
+	uint32_t i;
+	cs_csx_t *csx = msg_ctx->csx;
+
+	for (i = 0; i < csx->cse_cnt; i++) {
+		SPDK_NOTICELOG("CSE_%d id:%d\n", i, csx->p_cse_list->compute_engine_identifier[i]);
+	}
+
+	g_poll_event.completed_msg_cnt++;
+	free(msg_ctx);
 }
 /* End of CS_INTERNAL_C */

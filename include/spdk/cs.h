@@ -50,6 +50,6 @@ typedef enum {
 /*                                                          */
 /************************************************************/
 CS_STATUS csGetCSxFromPath(char *Path, unsigned int *Length, char *DevName);
-
+CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer);
 /* End of CS_H */
 #endif

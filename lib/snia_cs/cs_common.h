@@ -44,6 +44,10 @@ typedef struct _cs_csx {
 	TAILQ_ENTRY(_cs_csx) next;      		// next attached CSx
 	size_t bdev_count;				// total bdev count (NSID) in CSx
 	const char *bdev_names[MAX_BDEVS_PER_CSX];	// last entry is the name of CSx
+	const char *csx_name;
+	uint32_t cse_cnt;
+	struct spdk_csd_compute_engine_list *p_cse_list;
+	uint32_t cse_list_size;
 } cs_csx_t;
 
 /************************************************************/
