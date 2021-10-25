@@ -53,6 +53,8 @@
 #include "spdk/memory.h"
 #include "spdk/nvme_intel.h"
 #include "spdk/nvmf_spec.h"
+#include "spdk/nvme_csd.h"
+#include "spdk/nvme_csd_spec.h"
 #include "spdk/uuid.h"
 
 #include "spdk_internal/assert.h"

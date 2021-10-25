@@ -1262,3 +1262,66 @@ spdk_nvme_ns_cmd_reservation_report(struct spdk_nvme_ns *ns,
 
 	return nvme_qpair_submit_request(qpair, req);
 }
+
+int
+spdk_nvme_csd_ns_cmd_execute_program(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
+				uint16_t ce_id, uint16_t p_id, 
+				uint16_t rs_id,
+				void * d_ptr, uint32_t d_size_byte,
+				void * c_param,
+				spdk_nvme_cmd_cb cb_fn, void *cb_arg,
+		       		uint32_t io_flags)
+{
+	struct nvme_request	*req;
+	struct spdk_nvme_cmd	*cmd;
+	uint32_t		sector_size = 0;
+	struct nvme_payload 	payload;
+	uint16_t size = 6 * sizeof(uint32_t);
+	int 			rc = 0;
+	uint32_t		data_sec_count;
+
+	if (!_is_io_flags_valid(io_flags)) {
+		return -EINVAL;
+	}
+
+	payload = NVME_PAYLOAD_CONTIG(d_ptr, NULL);
+	sector_size = _nvme_get_host_buffer_sector_size(ns, io_flags);
+	
+	assert((d_size_byte % sector_size) == 0);
+	data_sec_count = d_size_byte / sector_size;
+
+	req = nvme_allocate_request(qpair, &payload, data_sec_count * sector_size, data_sec_count * ns->md_size,
+				    cb_fn, cb_arg);
+	if (req == NULL) {
+		rc = -ENOMEM;
+		return rc;
+	}
+	
+	// Not support command split. 
+	assert(!(data_sec_count > sectors_per_max_io));
+	assert(!(nvme_payload_type(&req->payload) == NVME_PAYLOAD_TYPE_SGL));
+	assert(_is_io_flags_valid(io_flags));
+
+	cmd = &req->cmd;
+	cmd->nsid = ns->id;
+	cmd->opc = SPDK_CSD_OPC_EXECUTE_PROGRAM;
+	cmd->cdw2_bits.csd_execute_program.ceid = ce_id;
+	cmd->cdw2_bits.csd_execute_program.pid = p_id;
+	cmd->cdw3_bits.csd_execute_program.rsid = rs_id;
+	memcpy(&cmd->cdw10, c_param, size);
+
+	if (req != NULL) 
+	{
+		return nvme_qpair_submit_request(qpair, req);
+	} 
+	else
+	{
+		return nvme_ns_map_failure_rc(data_sec_count,
+					      ns->sectors_per_max_io,
+					      ns->sectors_per_stripe,
+					      qpair->ctrlr->opts.io_queue_requests,
+					      rc);
+	}
+
+	return rc;
+}

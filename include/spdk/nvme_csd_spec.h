@@ -56,12 +56,17 @@ extern "C" {
  */
 enum spdk_csd_admin_opcode {
 	SPDK_CSD_OPC_PROGRAM_ACTIVATION		= 0x20,
-	SPDK_CSD_OPC_EXECUTE_PROGRAM		= 0x21,
 	/* 0x22 - reserved */
 	SPDK_CSD_OPC_LOAD_PROGRAM		= 0x23,
 	/* 0x25 - reserved */
 	SPDK_CSD_OPC_CREATE_MEMORY_RANGE_SET	= 0x24,
 	SPDK_CSD_OPC_DELETE_MEMORY_RANGE_SET	= 0x26,
+};
+/**
+ * CSD IO command set opcodes
+ */
+enum spdk_csd_io_opcode {
+	SPDK_CSD_OPC_EXECUTE_PROGRAM		= 0x80,
 };
 
 /**
