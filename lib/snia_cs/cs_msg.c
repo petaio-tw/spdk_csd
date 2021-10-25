@@ -50,7 +50,8 @@ static
 void bdev_nvme_create_done_cb(void *cb_ctx, size_t bdev_count, int rc);
 static
 void get_cse_list_complete_cb(struct spdk_bdev_io *bdev_io, bool success, void *cb_arg);
-
+static
+void exec_program_complete_cb(struct spdk_bdev_io *bdev_io, bool success, void *cb_arg);
 //-------------------------
 static void
 csx_bdev_event_cb(enum spdk_bdev_event_type type, struct spdk_bdev *bdev, void *event_ctx);
@@ -143,6 +144,87 @@ out:
 	}
 }
 
+void cs_msg_map_cmb(void *ctx)
+{
+	cs_msg_map_cmb_ctx_t *msg_ctx = (cs_msg_map_cmb_ctx_t *)ctx;
+	cs_csx_t *csx = msg_ctx->csx;
+	int rc = 0;
+
+	// init default value
+	msg_ctx->rc = CS_MSG_RC_SUCESS;
+	msg_ctx->bdev_desc = NULL;
+
+	// get bdev desc
+	rc = spdk_bdev_open_ext(csx->csx_name, true, 
+				csx_bdev_event_cb, NULL,
+				&msg_ctx->bdev_desc);
+	if (rc) {
+		SPDK_ERRLOG("Could not open bdev: %s\n", csx->csx_name);
+		msg_ctx->rc = CS_MSG_RC_GEN_FAIL;
+		goto out;
+	}
+
+	rc = spdk_bdev_nvme_map_cmb(msg_ctx->bdev_desc, &msg_ctx->csx->cmb_va, &msg_ctx->csx->cmb_size);
+	if (rc) {
+		SPDK_ERRLOG("Could not map cmb: %s\n", csx->csx_name);
+		msg_ctx->rc = CS_MSG_RC_GEN_FAIL;
+		goto out;
+	}
+
+out:
+	if (msg_ctx->bdev_desc) {
+		spdk_bdev_close(msg_ctx->bdev_desc);
+	}
+
+	if (msg_ctx->cpl_cb_fn) {
+		msg_ctx->cpl_cb_fn(msg_ctx);
+	}	
+}
+
+void cs_msg_exec_program(void *ctx)
+{
+	cs_msg_exec_program_ctx_t *msg_ctx = (cs_msg_exec_program_ctx_t *)ctx;
+	cs_csx_t *csx = msg_ctx->csx;
+	int rc = 0;
+
+	// init default value
+	msg_ctx->rc = CS_MSG_RC_SUCESS;
+	msg_ctx->bdev_desc = NULL;
+
+	// get bdev desc
+	rc = spdk_bdev_open_ext(csx->csx_name, true, 
+				csx_bdev_event_cb, NULL,
+				&msg_ctx->bdev_desc);
+	if (rc) {
+		SPDK_ERRLOG("Could not open bdev: %s\n", csx->csx_name);
+		msg_ctx->rc = CS_MSG_RC_GEN_FAIL;
+		goto out;
+	}
+
+	/* Open I/O channel */
+	struct spdk_io_channel *bdev_io_channel = spdk_bdev_get_io_channel(msg_ctx->bdev_desc);
+	if (bdev_io_channel == NULL) {
+		SPDK_ERRLOG("Could not create bdev I/O channel!!\n");
+		msg_ctx->rc = CS_MSG_RC_GEN_FAIL;
+		goto out;
+	}
+
+	/* get log page command */
+	struct spdk_nvme_cmd cmd = {};
+
+	rc = spdk_bdev_nvme_io_passthru(msg_ctx->bdev_desc, bdev_io_channel,
+					&cmd, NULL, 0,
+					exec_program_complete_cb, msg_ctx);
+
+out:
+	if (msg_ctx->bdev_desc) {
+		spdk_bdev_close(msg_ctx->bdev_desc);
+	}
+
+	if (msg_ctx->cpl_cb_fn) {
+		msg_ctx->cpl_cb_fn(msg_ctx);
+	}	
+}
 /**********************************************************/
 /*                                                        */
 /* LOCAL SUBPROGRAM BODIES                                */
@@ -167,6 +249,23 @@ void bdev_nvme_create_done_cb(void *cb_ctx, size_t bdev_count, int rc)
 
 static
 void get_cse_list_complete_cb(struct spdk_bdev_io *bdev_io, bool success, void *cb_arg) 
+{
+	cs_msg_get_cse_list_ctx_t *msg_ctx = (cs_msg_get_cse_list_ctx_t *)cb_arg;
+
+	if (!success) {
+		msg_ctx->rc = CS_MSG_RC_GEN_FAIL;
+	}
+
+	spdk_bdev_free_io(bdev_io);
+	spdk_bdev_close(msg_ctx->bdev_desc);
+
+	if (msg_ctx->cpl_cb_fn) {
+		msg_ctx->cpl_cb_fn(msg_ctx);
+	}
+}
+
+static
+void exec_program_complete_cb(struct spdk_bdev_io *bdev_io, bool success, void *cb_arg) 
 {
 	cs_msg_get_cse_list_ctx_t *msg_ctx = (cs_msg_get_cse_list_ctx_t *)cb_arg;
 

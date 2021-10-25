@@ -34,6 +34,8 @@
 #define MAX_FULL_SCRIPT_CMD_LEN		64
 #define BASE_NAME_SEPARATOR		'-'
 
+#define CMB_TEST_PATTERN		0x5aa5aa55
+
 #define SCAN_CSX_SCRIPT_CMD		"scan_csx.sh"
 /**********************************************************/
 /*                                                        */
@@ -73,6 +75,8 @@ static
 void cs_msg_get_cse_cnt_done_cb(void *cb_ctx);
 static
 void cs_msg_get_cse_list_done_cb(void *cb_ctx);
+static
+void cs_msg_map_cmb_done_cb(void *cb_ctx);
 /**********************************************************/
 /*                                                        */
 /* STATIC VARIABLE DECLARATIONS                           */
@@ -300,6 +304,52 @@ CS_STATUS cs_get_cse_list(void)
 	return sts;	
 }
 
+CS_STATUS cs_map_cmb(void)
+{
+	CS_STATUS sts = CS_SUCCESS;
+
+	memset(&g_poll_event, 0, sizeof(g_poll_event));
+
+	cs_csx_t *csx;
+	TAILQ_FOREACH(csx, &g_cs_mgmt.csx_list, next) {
+		bool b_clean_up = true;
+
+		// allocate msg_ctx
+		cs_msg_map_cmb_ctx_t *msg_ctx = calloc(1, sizeof(*msg_ctx));
+		if (msg_ctx == NULL) {
+			SPDK_ERRLOG("calloc fail\n");
+			goto cleanup;
+		}
+
+		// init msg_ctx
+		msg_ctx->cpl_cb_fn = cs_msg_map_cmb_done_cb;
+		msg_ctx->cpl_cb_ctx = msg_ctx;
+
+		msg_ctx->csx = csx;
+
+		// send msg cmd
+		if (spdk_thread_send_msg(g_cs_mgmt.app_thread, cs_msg_map_cmb, msg_ctx) < 0) {
+			SPDK_ERRLOG("send cs_msg fail\n");
+			goto cleanup;
+		}
+
+		g_poll_event.issued_msg_cnt++;
+		b_clean_up = false;
+
+	cleanup:
+		if (b_clean_up == true) {
+			if (msg_ctx != NULL) {
+				free(msg_ctx);
+			}
+
+			sts = CS_NOT_ENOUGH_MEMORY;
+			break;
+		}					
+	}
+
+	while (g_poll_event.issued_msg_cnt != g_poll_event.completed_msg_cnt);
+	return sts;		
+}
 //---------------------------------------------
 // snia cs APIs
 //
@@ -341,6 +391,55 @@ CS_STATUS csGetCSxFromPath(char *Path, unsigned int *Length, char *DevName)
 CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer)
 {
 	return CS_SUCCESS;
+}
+
+CS_STATUS csQueueComputeRequest(
+	CsComputeRequest 	*Req,
+	void 			*Context,
+	csQueueCallbackFn 	CallbackFn,
+	CS_EVT_HANDLE 		EventHandle,
+	u32 			*CompValue)
+{
+	return CS_SUCCESS;
+}
+
+CS_STATUS csAllocMem(
+	CS_DEV_HANDLE 	DevHandle,
+	int 		Bytes, 
+	unsigned int 	MemFlags,
+	CS_MEM_HANDLE 	*MemHandle, 
+	CS_MEM_PTR 	*VAddressPtr)
+{
+	return CS_SUCCESS;
+}
+
+void csHelperSetComputeArg(CsComputeArg *ArgPtr, CS_COMPUTE_ARG_TYPE Type,...)
+{
+	va_list args;
+    	va_start(args, Type);
+
+	ArgPtr->Type = Type;
+	switch (Type) {
+	case CS_AFDM_TYPE:
+		ArgPtr->u.DevMem.MemHandle = va_arg(args, CS_MEM_HANDLE);
+		ArgPtr->u.DevMem.ByteOffset = va_arg(args, unsigned long);
+		break;
+	case CS_32BIT_VALUE_TYPE:
+		ArgPtr->u.Value32 = va_arg(args, u32);
+		break;
+	case CS_64BIT_VALUE_TYPE:
+		ArgPtr->u.Value64 = va_arg(args, u64);
+		break;
+	case CS_STREAM_TYPE:
+		ArgPtr->u.StreamHandle = va_arg(args, CS_STREAM_HANDLE);
+		break;
+	case CS_DESCRIPTOR_TYPE:						
+	default:
+		break;
+	}
+
+	va_end(args);    
+
 }
 /**********************************************************/
 /*                                                        */
@@ -446,5 +545,26 @@ void cs_msg_get_cse_list_done_cb(void *cb_ctx)
 
 	g_poll_event.completed_msg_cnt++;
 	free(msg_ctx);
+}
+
+static
+void cs_msg_map_cmb_done_cb(void *cb_ctx)
+{
+	cs_msg_map_cmb_ctx_t *msg_ctx = (cs_msg_map_cmb_ctx_t *)cb_ctx;
+	cs_csx_t *csx = msg_ctx->csx;
+
+	SPDK_NOTICELOG("%s:cmb_va=%p,cmb_pa=%08lX, size=%ld\n", 
+		csx->csx_name, csx->cmb_va, 
+		(csx->cmb_va) ? spdk_vtophys(csx->cmb_va, &csx->cmb_size) : 0,
+		csx->cmb_size);
+
+	uint32_t *cmb_buf = (uint32_t *)csx->cmb_va;
+	*cmb_buf = CMB_TEST_PATTERN;
+	if (*cmb_buf != CMB_TEST_PATTERN) {
+		SPDK_ERRLOG("cmb test fail\n");
+	}
+
+	g_poll_event.completed_msg_cnt++;
+	free(msg_ctx);	
 }
 /* End of CS_INTERNAL_C */

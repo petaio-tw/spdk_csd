@@ -1748,6 +1748,12 @@ void spdk_bdev_histogram_get(struct spdk_bdev *bdev, struct spdk_histogram_data 
 size_t spdk_bdev_get_media_events(struct spdk_bdev_desc *bdev_desc,
 				  struct spdk_bdev_media_event *events, size_t max_events);
 
+
+int
+spdk_bdev_nvme_map_cmb(struct spdk_bdev_desc *desc, void **va, size_t *cmb_size);
+int
+spdk_bdev_nvme_unmap_cmb(struct spdk_bdev_desc *desc);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1212,6 +1212,24 @@ bdev_nvme_get_module_ctx(void *ctx)
 	return bdev_nvme_get_ctrlr(&nvme_bdev->disk);
 }
 
+static void *
+bdev_nvme_map_cmb(void *ctx, size_t *cmb_size)
+{
+	struct nvme_bdev *nvme_bdev = ctx;
+	struct spdk_nvme_ctrlr *ctrlr = bdev_nvme_get_ctrlr(&nvme_bdev->disk);
+
+	return spdk_nvme_ctrlr_map_cmb(ctrlr, cmb_size);	
+}
+
+static void
+bdev_nvme_unmap_cmb(void *ctx)
+{
+	struct nvme_bdev *nvme_bdev = ctx;
+	struct spdk_nvme_ctrlr *ctrlr = bdev_nvme_get_ctrlr(&nvme_bdev->disk);
+
+	spdk_nvme_ctrlr_unmap_cmb(ctrlr);	
+}
+
 static const char *
 _nvme_ana_state_str(enum spdk_nvme_ana_state ana_state)
 {
@@ -1389,6 +1407,8 @@ static const struct spdk_bdev_fn_table nvmelib_fn_table = {
 	.write_config_json	= bdev_nvme_write_config_json,
 	.get_spin_time		= bdev_nvme_get_spin_time,
 	.get_module_ctx		= bdev_nvme_get_module_ctx,
+	.map_cmb		= bdev_nvme_map_cmb,
+	.unmap_cmb		= bdev_nvme_unmap_cmb,
 };
 
 typedef int (*bdev_nvme_parse_ana_log_page_cb)(

@@ -246,6 +246,12 @@ struct spdk_bdev_fn_table {
 
 	/** Get bdev module context. */
 	void *(*get_module_ctx)(void *ctx);
+
+	/** map cmb */
+	void *(*map_cmb)(void *ctx, size_t *cmb_size);
+
+	/** unmap cmb */
+	void (*unmap_cmb)(void *ctx);	
 };
 
 /** bdev I/O completion status */

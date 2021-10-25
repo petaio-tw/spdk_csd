@@ -223,10 +223,13 @@ shell_common_get_parameter_int32(UINT32 parameters_index)
 	return number;
 }
 
-UINT32
-shell_common_get_parameter_uint32(UINT32 parameters_index)
+//-----------------------------------------------
+// export functions
+//
+uint32_t
+spdk_shell_common_get_parameter_uint32(uint32_t parameters_index)
 {
-	UINT32 num_parameters = g_shell_common->num_parameters;
+	uint32_t num_parameters = g_shell_common->num_parameters;
 	if (parameters_index >= num_parameters)
 	{
 		printf("[Shell] Enter a parameter - %d\n", parameters_index);
@@ -236,14 +239,11 @@ shell_common_get_parameter_uint32(UINT32 parameters_index)
 
 	const char* parameter_string = g_shell_common->parameter_list[parameters_index];
 
-	UINT32 number = string_to_uint32(parameter_string);
+	uint32_t number = string_to_uint32(parameter_string);
 
 	return number;
 }
 
-//-----------------------------------------------
-// export functions
-//
 bool
 spdk_shell_common_get_parameters_uint32(uint32_t* parameter, uint32_t num_parameters)
 {
@@ -252,7 +252,7 @@ spdk_shell_common_get_parameters_uint32(uint32_t* parameter, uint32_t num_parame
 	}
 
 	for (uint32_t index = 0; index < num_parameters; index++) {
-		parameter[index] = shell_common_get_parameter_uint32(index);
+		parameter[index] = spdk_shell_common_get_parameter_uint32(index);
 	}
 
 	return TRUE;

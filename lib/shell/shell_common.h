@@ -59,7 +59,4 @@ shell_common_get_command_ready(void)
 INT32
 shell_common_get_parameter_int32(UINT32 parameters_index);
 
-UINT32
-shell_common_get_parameter_uint32(UINT32 parameters_index);
-
 #endif	// __SHELL_COMMON_H__

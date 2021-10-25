@@ -54,7 +54,13 @@
 static
 int32_t cs_shell_cmd_scan_csx(void);
 static
-int32_t cs_shell_get_csxes(void);
+int32_t cs_shell_cmd_get_csxes(void);
+static
+int32_t cs_shell_cmd_exec_prog(void);
+static
+int32_t cs_shell_cmd_mem_write(void);
+static
+int32_t cs_shell_cmd_mem_read(void);
 //-----------------------------------------
 static 
 int cs_shell_parse_arg(int ch, char *arg);
@@ -76,7 +82,10 @@ static const SHELL_CMD_TABLE_T shell_cmd_table[] =
 	// Command,			Explanation,				Function pointer
 	{"help",			"print command list",			spdk_shell_cmd_print_list},
 	{"scsx",			"scan csx",				cs_shell_cmd_scan_csx},
-	{"csxes",			"get csxes",				cs_shell_get_csxes},		
+	{"csxes",			"get csxes",				cs_shell_cmd_get_csxes},
+	{"execp",			"exec prog",				cs_shell_cmd_exec_prog},
+	{"mw",				"mem write",				cs_shell_cmd_mem_write},
+	{"mr",				"mem read",				cs_shell_cmd_mem_read},		
 	{NULL, NULL, NULL},		// should end with NULL
 };
 
@@ -140,14 +149,17 @@ main(int argc, char **argv)
 /*                                                        */
 /**********************************************************/
 static
-int32_t cs_shell_cmd_scan_csx(void) {
+int32_t cs_shell_cmd_scan_csx(void) 
+{
 	cs_scan_csxes();
 	cs_get_cse_list();
+	cs_map_cmb();
 	return 0;
 }
 
 static
-int32_t cs_shell_get_csxes(void) {
+int32_t cs_shell_cmd_get_csxes(void) 
+{
 	uint32_t length;
 	char *buf = NULL;
 
@@ -162,6 +174,97 @@ int32_t cs_shell_get_csxes(void) {
 	}
 
 	return 0;
+}
+
+static
+int32_t cs_shell_cmd_exec_prog(void)
+{	
+#if 0	
+	int i;
+
+	// allocate device and host memory 
+	for (i = 0; i < 2; i++) { 
+		status = csAllocMem(dev, 4096, 0, &AFDMArray[i], &vaArray[i]);
+
+		if (status != CS_SUCCESS) {
+			ERROR_OUT("AFDM alloc error\n"); 
+		}
+	}
+
+	// allocate request buffer for 3 args 
+	req = calloc(1, sizeof(CsComputeRequest) + (sizeof(CsComputeArg) * 3)); 
+	if (!req) {
+		ERROR_OUT("memory alloc error\n");
+	}
+
+	// read file content to AFDM via p2p access 
+	if (!pread(hFile, vaArray[0], 4096, 0)) {
+		ERROR_OUT("file read error\n");
+	}
+
+	// setup work request 
+	req->DevHandle = dev;  
+	req->FunctionId = functId; 
+	req->NumArgs = 3; 
+	argPtr = &req->Args[0]; 
+	csHelperSetComputeArg(&argPtr[0], CS_AFDM_TYPE, AFDMArray[0], 0); 
+	csHelperSetComputeArg(&argPtr[1], CS_32BIT_VALUE_TYPE, 4096); 
+	csHelperSetComputeArg(&argPtr[2], CS_AFDM_TYPE, AFDMArray[1], 0); 
+
+	// do synchronous work request 
+	status = csQueueComputeRequest(req, NULL, NULL, NULL, NULL); 
+	if (status != CS_SUCCESS) {
+		ERROR_OUT("Compute exec error\n"); 
+	}
+#endif
+
+	return 0;
+}
+
+static
+int32_t cs_shell_cmd_mem_write(void)
+{
+	uint32_t *addr;
+	char *addr_str, *end_ptr;	
+	uint32_t data;
+
+	addr_str = (char *)spdk_shell_common_get_parameter_string(0);
+	if (addr_str == NULL) {
+		return SHELL_ERROR_CODE_WRONG_NUM_PARAMETERS;
+	}
+
+	addr = (uint32_t *)strtoull(addr_str, &end_ptr, 16);
+	if (!end_ptr) {
+		return SHELL_ERROR_CODE_WRONG_NUM_PARAMETERS;
+	}
+
+	data = spdk_shell_common_get_parameter_uint32(1);
+
+	*addr = data;
+	printf("[%p]<-%08X\n", addr, data);
+	
+	return 0;
+}
+
+static
+int32_t cs_shell_cmd_mem_read(void)
+{
+	uint32_t *addr;
+	char *addr_str, *end_ptr;
+
+	addr_str = (char *)spdk_shell_common_get_parameter_string(0);
+	if (addr_str == NULL) {
+		return SHELL_ERROR_CODE_WRONG_NUM_PARAMETERS;
+	}
+
+	addr = (uint32_t *)strtoull(addr_str, &end_ptr, 16);
+	if (!end_ptr) {
+		return SHELL_ERROR_CODE_WRONG_NUM_PARAMETERS;
+	}
+
+	printf("[%p]->%08X\n", addr, *addr);
+	
+	return 0;	
 }
 
 /*

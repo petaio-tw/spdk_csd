@@ -4922,6 +4922,38 @@ spdk_bdev_nvme_io_passthru_md(struct spdk_bdev_desc *desc, struct spdk_io_channe
 	return 0;
 }
 
+int
+spdk_bdev_nvme_map_cmb(struct spdk_bdev_desc *desc, void **va, size_t *cmb_size)
+{
+	struct spdk_bdev *bdev = spdk_bdev_desc_get_bdev(desc);
+
+	if (bdev->fn_table->map_cmb)
+	{
+		*va = bdev->fn_table->map_cmb(bdev->ctxt, cmb_size);
+		if (*va == NULL) {
+			return -ENXIO;
+		}
+	} else {
+		*va = NULL;
+		*cmb_size = 0;		
+	}
+
+	return 0;
+}
+
+int
+spdk_bdev_nvme_unmap_cmb(struct spdk_bdev_desc *desc)
+{
+	struct spdk_bdev *bdev = spdk_bdev_desc_get_bdev(desc);
+
+	if (bdev->fn_table->unmap_cmb) {
+		bdev->fn_table->unmap_cmb(bdev->ctxt);
+	}
+
+	return 0;	
+}
+
+
 static void bdev_abort_retry(void *ctx);
 static void bdev_abort(struct spdk_bdev_io *parent_io);
 

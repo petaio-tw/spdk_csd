@@ -26,6 +26,8 @@ void
 spdk_shell_task(void);
 int32_t
 spdk_shell_cmd_print_list(void);
+uint32_t
+spdk_shell_common_get_parameter_uint32(uint32_t parameters_index);
 bool
 spdk_shell_common_get_parameters_uint32(uint32_t* parameter, uint32_t num_parameters);
 const char*

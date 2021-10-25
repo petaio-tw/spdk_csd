@@ -81,6 +81,34 @@ typedef struct _cs_msg_get_cse_list_ctx {
 	struct spdk_bdev_desc 		*bdev_desc;
 } cs_msg_get_cse_list_ctx_t;
 
+
+//------------------------------------
+// cs_msg_map_cmb
+//
+typedef struct _cs_msg_map_cmb_ctx {
+	// --- input ---	
+	cs_msg_cpl_cb_fn 		cpl_cb_fn;
+	void 				*cpl_cb_ctx;
+	// --- output ---
+	cs_csx_t			*csx;
+	cs_msg_rc_t 			rc;
+	// --- internal ---
+	struct spdk_bdev_desc 		*bdev_desc;
+} cs_msg_map_cmb_ctx_t;
+
+//------------------------------------
+// cs_msg_exec_program
+//
+typedef struct _cs_msg_exec_program_ctx {
+	// --- input ---	
+	cs_msg_cpl_cb_fn 		cpl_cb_fn;
+	void 				*cpl_cb_ctx;
+	// --- output ---
+	cs_csx_t			*csx;
+	cs_msg_rc_t 			rc;
+	// --- internal ---
+	struct spdk_bdev_desc 		*bdev_desc;
+} cs_msg_exec_program_ctx_t;
 /************************************************************/
 /*                                                          */ 
 /* EXPORTED SUBPROGRAM SPECIFICATIONS                       */
@@ -89,6 +117,7 @@ typedef struct _cs_msg_get_cse_list_ctx {
 /************************************************************/
 void cs_msg_attach_nvme_csx(void *ctx);
 void cs_msg_get_cse_list(void *ctx);
-
+void cs_msg_map_cmb(void *ctx);
+void cs_msg_exec_program(void *ctx);
 /* End of CS_MSG_H */
 #endif

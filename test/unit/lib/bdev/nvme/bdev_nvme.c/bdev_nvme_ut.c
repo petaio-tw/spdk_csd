@@ -823,6 +823,18 @@ spdk_nvme_ctrlr_process_admin_completions(struct spdk_nvme_ctrlr *ctrlr)
 	return spdk_nvme_qpair_process_completions(&ctrlr->adminq, 0);
 }
 
+void *
+spdk_nvme_ctrlr_map_cmb(struct spdk_nvme_ctrlr *ctrlr, size_t *size)
+{
+	return NULL;
+}
+
+void
+spdk_nvme_ctrlr_unmap_cmb(struct spdk_nvme_ctrlr *ctrlr)
+{
+	return;
+}
+
 uint32_t
 spdk_nvme_ns_get_id(struct spdk_nvme_ns *ns)
 {

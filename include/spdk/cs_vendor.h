@@ -51,5 +51,6 @@ typedef struct _cs_init_param {
 void cs_init(cs_init_param_t *param);
 CS_STATUS cs_scan_csxes(void);
 CS_STATUS cs_get_cse_list(void);
+CS_STATUS cs_map_cmb(void);
 /* End of CS_VENDOR_H */
 #endif
