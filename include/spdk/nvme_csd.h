@@ -53,16 +53,17 @@ spdk_nvme_csd_ctrlr_program_activate(struct spdk_nvme_ctrlr *ctrlr,
 					uint16_t ce_id, uint16_t p_id, uint8_t action,
 					struct spdk_nvme_status *completion_status);
 int
-spdk_nvme_csd_ctrlr_execute_program(struct spdk_nvme_ctrlr *ctrlr,
-				 uint16_t ce_id, uint16_t p_id, 
-				 uint16_t rs_id,
-				 void * d_ptr,
-				 void * c_param,
-				 struct spdk_nvme_status *completion_status);
+spdk_nvme_csd_ctrlr_execute_program(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
+				uint16_t ce_id, uint16_t p_id, 
+				uint16_t rs_id,
+				void * d_ptr, uint32_t d_size_byte,
+				void * c_param,
+				spdk_nvme_cmd_cb cb_fn, void *cb_arg,
+		       		uint32_t io_flags);
 int
 spdk_nvme_csd_ctrlr_load_program(struct spdk_nvme_ctrlr *ctrlr, void *payload, uint32_t size,
-				 bool unload, uint8_t program_type, uint16_t program_id,
-				 struct spdk_nvme_status *completion_status);
+				bool unload, uint8_t program_type, uint16_t program_id,
+				struct spdk_nvme_status *completion_status);
 int
 spdk_nvme_csd_ctrlr_create_memory_range_set(struct spdk_nvme_ctrlr *ctrlr, 
 						uint32_t nu_mr,

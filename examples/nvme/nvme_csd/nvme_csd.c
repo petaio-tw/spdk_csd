@@ -46,6 +46,12 @@
 #define MAX_DEVS 64
 #define MAX_SHELL_CMD_DESC_STR		100
 
+#define NUM_NS				1
+#define NS_START_IDX			1
+#define NUM_CE				4
+#define NUM_PROGRAM			4
+#define NUM_MEM_RANGE_SET		4
+
 typedef void (*SHELL_FUNC_PTR)(void);
 
 struct dev {
@@ -57,10 +63,32 @@ struct dev {
 	struct spdk_opal_dev			*opal_dev;
 };
 
+struct ctrlr_entry {
+	struct spdk_nvme_ctrlr		*ctrlr;
+	TAILQ_ENTRY(ctrlr_entry)	link;
+	char				name[1024];
+};
+
+struct ns_entry {
+	struct spdk_nvme_ctrlr	*ctrlr;
+	struct spdk_nvme_ns	*ns;
+	TAILQ_ENTRY(ns_entry)	link;
+	struct spdk_nvme_qpair	*qpair;
+};
+
+struct csd_sequence {
+	struct ns_entry	*ns_entry;
+	char		*buf;
+	unsigned        using_cmb_io;
+	int		is_completed;
+};
+
 static struct dev devs[MAX_DEVS];
 static int num_devs = 0;
 static int g_shm_id = -1;
 static bool g_exit_flag = false;
+static TAILQ_HEAD(, ctrlr_entry) g_controllers = TAILQ_HEAD_INITIALIZER(g_controllers);
+static TAILQ_HEAD(, ns_entry) g_namespaces = TAILQ_HEAD_INITIALIZER(g_namespaces);
 
 #define foreach_dev(iter) \
 	for (iter = devs; iter - devs < num_devs; iter++)
@@ -116,6 +144,29 @@ struct shell_content g_shell_content[SHELL_CMD_MAX] =
 	{shell_cmd_quit,				"SHELL_CMD_QUIT"},
 };
 
+static void
+register_ns(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme_ns *ns)
+{
+	struct ns_entry *entry;
+
+	if (!spdk_nvme_ns_is_active(ns)) {
+		return;
+	}
+
+	entry = malloc(sizeof(struct ns_entry));
+	if (entry == NULL) {
+		perror("ns_entry malloc");
+		exit(1);
+	}
+
+	entry->ctrlr = ctrlr;
+	entry->ns = ns;
+	TAILQ_INSERT_TAIL(&g_namespaces, entry, link);
+
+	printf("  Namespace ID: %d size: %juMB\n", spdk_nvme_ns_get_id(ns),
+	       spdk_nvme_ns_get_size(ns) / 1000000);
+}
+
 static void shell_cmd_quit(void)
 {
 	g_exit_flag = true;
@@ -156,6 +207,9 @@ attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
 {
 	struct dev *dev;
 	struct spdk_nvme_cmd cmd;
+	int nsid, num_ns;
+	struct ctrlr_entry *entry;
+	struct spdk_nvme_ns *ns;
 
 	/* add to dev list */
 	dev = &devs[num_devs++];
@@ -187,6 +241,91 @@ attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
 
 	while (dev->outstanding_admin_cmds) {
 		spdk_nvme_ctrlr_process_admin_completions(ctrlr);
+	}
+
+	entry = malloc(sizeof(struct ctrlr_entry));
+	if (entry == NULL) {
+		perror("ctrlr_entry malloc");
+		exit(1);
+	}
+
+	printf("Attached to %s\n", trid->traddr);
+
+	snprintf(entry->name, sizeof(entry->name), "%-20.20s (%-20.20s)", dev->cdata->mn, dev->cdata->sn);
+
+	entry->ctrlr = ctrlr;
+	TAILQ_INSERT_TAIL(&g_controllers, entry, link);
+	/*
+	 * Each controller has one or more namespaces.  An NVMe namespace is basically
+	 *  equivalent to a SCSI LUN.  The controller's IDENTIFY data tells us how
+	 *  many namespaces exist on the controller.  For Intel(R) P3X00 controllers,
+	 *  it will just be one namespace.
+	 *
+	 * Note that in NVMe, namespace IDs start at 1, not 0.
+	 */
+	num_ns = spdk_nvme_ctrlr_get_num_ns(ctrlr);
+	printf("Using controller %s with %d namespaces.\n", entry->name, num_ns);
+	for (nsid = 1; nsid <= num_ns; nsid++) {
+		ns = spdk_nvme_ctrlr_get_ns(ctrlr, nsid);
+		if (ns == NULL) {
+			continue;
+		}
+		register_ns(ctrlr, ns);
+	}
+}
+
+static void
+execute_program_complete(void *arg, const struct spdk_nvme_cpl *completion)
+{
+	struct csd_sequence		*sequence = arg;
+	struct ns_entry			*ns_entry = sequence->ns_entry;
+
+	/* Assume the I/O was successful */
+	sequence->is_completed = 1;
+
+	/* See if an error occurred. If so, display information
+	 * about it, and set completion value so that I/O
+	 * caller is aware that an error occurred.
+	 */
+	if (spdk_nvme_cpl_is_error(completion)) {
+		spdk_nvme_qpair_print_completion(sequence->ns_entry->qpair, (struct spdk_nvme_cpl *)completion);
+		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
+		fprintf(stderr, "Write I/O failed, aborting run\n");
+		sequence->is_completed = 2;
+		exit(1);
+	}
+	/*
+	 * The write I/O has completed.  Free the buffer associated with
+	 *  the write I/O and allocate a new zeroed buffer for reading
+	 *  the data back from the NVMe namespace.
+	 */
+	if (sequence->using_cmb_io) {
+		spdk_nvme_ctrlr_unmap_cmb(ns_entry->ctrlr);
+	} else {
+		spdk_free(sequence->buf);
+	}
+}
+
+static void
+cleanup(void)
+{
+	struct ns_entry *ns_entry, *tmp_ns_entry;
+	struct ctrlr_entry *ctrlr_entry, *tmp_ctrlr_entry;
+	struct spdk_nvme_detach_ctx *detach_ctx = NULL;
+
+	TAILQ_FOREACH_SAFE(ns_entry, &g_namespaces, link, tmp_ns_entry) {
+		TAILQ_REMOVE(&g_namespaces, ns_entry, link);
+		free(ns_entry);
+	}
+
+	TAILQ_FOREACH_SAFE(ctrlr_entry, &g_controllers, link, tmp_ctrlr_entry) {
+		TAILQ_REMOVE(&g_controllers, ctrlr_entry, link);
+		spdk_nvme_detach_async(ctrlr_entry->ctrlr, &detach_ctx);
+		free(ctrlr_entry);
+	}
+
+	if (detach_ctx) {
+		spdk_nvme_detach_poll(detach_ctx);
 	}
 }
 
@@ -500,106 +639,208 @@ static void nvme_csd_execute_program(void)
 {
 	int					rc;
 	int					fd = -1;
-	int					ce_id;
-	int					p_id;
-	int					rs_id;
-	void					*d_ptr;
-	void					*c_param;
-	unsigned int				size;
+	int					ns_id = 1, ns_idx;
+	int					ce_id = 0;
+	int					p_id = 0;
+	int					rs_id = 0;
+	void					*c_param = NULL;
+	size_t					buffer_size;
+	size_t					size;
 	struct stat				data_stat;
-	char					path[256];
-	struct dev				*ctrlr;
-	struct spdk_nvme_status			status;
-
-#if FOR_ONLY_ONE_TEST_DEVICE
-	ctrlr = devs;
-#else
-	ctrlr = get_controller();
-	if (ctrlr == NULL) {
-		printf("Invalid controller PCI BDF.\n");
-		return;
-	}
-#endif
+	char					path[256] = "/home/joshua/test_bin.bin";
+	struct ns_entry				*ns_entry;
+	struct csd_sequence			sequence;
+	int					ch;
 
 	printf("Please Input The Path Of data\n");
 
+	while ((ch = getchar()) != '\n' && ch != EOF);
 	if (get_line(path, sizeof(path), stdin, false) == NULL) {
 		printf("Invalid path setting\n");
 		while (getchar() != '\n');
 		return;
 	}
 
+	printf("path:%s\r\n", path);
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		perror("Open file failed");
-		return;
+		goto _ERR_OUT;
 	}
 	rc = fstat(fd, &data_stat);
 	if (rc < 0) {
 		printf("Fstat failed\n");
-		close(fd);
-		return;
+		goto _ERR_OUT;
 	}
 
 	if (data_stat.st_size % 4) {
 		printf("data size is not multiple of 4\n");
-		close(fd);
-		return;
+		goto _ERR_OUT;
 	}
 	
 	size = data_stat.st_size;
 
-	d_ptr = spdk_dma_zmalloc(size, 4096, NULL);
-	if (d_ptr == NULL) {
-		printf("Allocation error\n");
-		close(fd);
-		return;
+	printf("Please input NS ID:\n");
+	if (!scanf("%d", &ns_id)) {
+		printf("Invalid NS ID\n");
+		while (getchar() != '\n');
+		goto _ERR_OUT;
 	}
-
-	if (read(fd, d_ptr, size) != ((ssize_t)(size))) {
-		printf("Read data failed\n");
-		close(fd);
-		spdk_dma_free(d_ptr);
-		return;
+	if ((ns_id < NS_START_IDX) || (ns_id >= (NS_START_IDX + NUM_NS)))
+	{
+		printf("Invalid NS ID\n");
+		while (getchar() != '\n');
+		goto _ERR_OUT;
 	}
-	close(fd);
 
 	printf("Please input computational engine ID :\n");
 	if (!scanf("%d", &ce_id)) {
 		printf("Invalid computational engine ID\n");
-		spdk_dma_free(d_ptr);
 		while (getchar() != '\n');
-		return;
+		goto _ERR_OUT;
+	}
+	if (ce_id >= NUM_CE)
+	{
+		printf("Invalid computational engine ID\n");
+		while (getchar() != '\n');
+		goto _ERR_OUT;
 	}
 
 	printf("Please input program ID(0 - 3):\n");
 	if (!scanf("%d", &p_id)) {
 		printf("Invalid program ID\n");
-		spdk_dma_free(d_ptr);
 		while (getchar() != '\n');
-		return;
+		goto _ERR_OUT;
+	}
+	if (p_id >= NUM_PROGRAM)
+	{
+		printf("Invalid program ID\n");
+		while (getchar() != '\n');
+		goto _ERR_OUT;
 	}
 
 	printf("Please input memory range set:\n");
 	if (!scanf("%d", &rs_id)) {
 		printf("Invalid memory range set\n");
-		spdk_dma_free(d_ptr);
 		while (getchar() != '\n');
-		return;
+		goto _ERR_OUT;
+	}
+	if (rs_id >= NUM_MEM_RANGE_SET)
+	{
+		printf("Invalid memory range set\n");
+		while (getchar() != '\n');
+		goto _ERR_OUT;
 	}
 
-	c_param = d_ptr;
-	
-	rc = spdk_nvme_csd_ctrlr_execute_program(ctrlr->ctrlr, 
-						ce_id, p_id, rs_id,
-						d_ptr, c_param, 
-						&status);
-	if (rc) {
-		printf("spdk_nvme_csd_ctrlr_execute_program failed\n");
-	} else {
-		printf("spdk_nvme_csd_ctrlr_execute_program success\n");
+	c_param = spdk_dma_zmalloc(sizeof(uint32_t) * 6, 4, NULL);
+	if (c_param == NULL) {
+		printf("Allocation error\n");
+		goto _ERR_OUT;
 	}
-	spdk_dma_free(d_ptr);
+
+	ns_entry = TAILQ_FIRST(&g_namespaces);
+	for (ns_idx = NS_START_IDX; ns_idx < ns_id; ns_idx++)
+	{
+		if (!ns_entry) {
+			printf("Invalid NS ID\n");
+			goto _ERR_OUT;
+		}
+		ns_entry = TAILQ_NEXT(ns_entry, link);
+	}
+
+	/*
+		* Allocate an I/O qpair that we can use to submit read/write requests
+		*  to namespaces on the controller.  NVMe controllers typically support
+		*  many qpairs per controller.  Any I/O qpair allocated for a controller
+		*  can submit I/O to any namespace on that controller.
+		*
+		* The SPDK NVMe driver provides no synchronization for qpair accesses -
+		*  the application must ensure only a single thread submits I/O to a
+		*  qpair, and that same thread must also check for completions on that
+		*  qpair.  This enables extremely efficient I/O processing by making all
+		*  I/O operations completely lockless.
+		*/
+	ns_entry->qpair = spdk_nvme_ctrlr_alloc_io_qpair(ns_entry->ctrlr, NULL, 0);
+	if (ns_entry->qpair == NULL) {
+		printf("ERROR: spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
+		goto _ERR_OUT;
+	}
+
+	/*
+		* Use spdk_dma_zmalloc to allocate a 4KB zeroed buffer.  This memory
+		* will be pinned, which is required for data buffers used for SPDK NVMe
+		* I/O operations.
+		*/
+	sequence.using_cmb_io = 1;
+	sequence.buf = spdk_nvme_ctrlr_map_cmb(ns_entry->ctrlr, &buffer_size);
+	if (sequence.buf == NULL || buffer_size < 0x1000) {
+		sequence.using_cmb_io = 0;
+		buffer_size = 0x1000;
+		sequence.buf = spdk_zmalloc(buffer_size, 0x1000, NULL, SPDK_ENV_SOCKET_ID_ANY, SPDK_MALLOC_DMA);
+	}
+
+	if (sequence.buf == NULL) {
+		printf("ERROR: write buffer allocation failed\n");
+		goto _ERR_OUT;
+	}
+	if (sequence.using_cmb_io) {
+		printf("INFO: using controller memory buffer for IO\n");
+	} else {
+		printf("INFO: using host memory buffer for IO\n");
+	}
+
+	sequence.is_completed = 0;
+	sequence.ns_entry = ns_entry;
+
+	if (read(fd, sequence.buf, size) != ((ssize_t)(size))) {
+		printf("Read data failed\n");
+		goto _ERR_OUT;
+	}
+	
+	rc = spdk_nvme_csd_ctrlr_execute_program(ns_entry->ns, ns_entry->qpair, 
+						ce_id, p_id, rs_id,
+						sequence.buf, size, c_param, 
+						execute_program_complete, &sequence, 0);
+
+	if (rc != 0) {
+		fprintf(stderr, "starting write I/O failed\n");
+		goto _ERR_OUT;
+	}
+	/*
+		* Poll for completions.  0 here means process all available completions.
+		*  In certain usage models, the caller may specify a positive integer
+		*  instead of 0 to signify the maximum number of completions it should
+		*  process.  This function will never block - if there are no
+		*  completions pending on the specified qpair, it will return immediately.
+		*
+		* When the write I/O completes, write_complete() will submit a new I/O
+		*  to read LBA 0 into a separate buffer, specifying read_complete() as its
+		*  completion routine.  When the read I/O completes, read_complete() will
+		*  print the buffer contents and set sequence.is_completed = 1.  That will
+		*  break this loop and then exit the program.
+		*/
+	while (!sequence.is_completed) {
+		spdk_nvme_qpair_process_completions(ns_entry->qpair, 0);
+	}
+
+	/*
+		* Free the I/O qpair.  This typically is done when an application exits.
+		*  But SPDK does support freeing and then reallocating qpairs during
+		*  operation.  It is the responsibility of the caller to ensure all
+		*  pending I/O are completed before trying to free the qpair.
+		*/
+	spdk_nvme_ctrlr_free_io_qpair(ns_entry->qpair);
+
+_ERR_OUT:
+	if (fd)
+	{
+		close(fd);
+	}
+	if (c_param)
+	{
+		spdk_dma_free(c_param);
+	}
+	return;
 }
 
 static void nvme_csd_load_program(void)
@@ -615,6 +856,7 @@ static void nvme_csd_load_program(void)
 	void					*program_image;
 	struct dev				*ctrlr;
 	struct spdk_nvme_status			status;
+	int					ch;
 
 #if FOR_ONLY_ONE_TEST_DEVICE
 	ctrlr = devs;
@@ -628,6 +870,7 @@ static void nvme_csd_load_program(void)
 
 	printf("Please Input The Path Of program Image\n");
 
+	while ((ch = getchar()) != '\n' && ch != EOF);
 	if (get_line(path, sizeof(path), stdin, false) == NULL) {
 		printf("Invalid path setting\n");
 		while (getchar() != '\n');
@@ -714,6 +957,7 @@ static void nvme_csd_create_memory_range_set(void)
 	void					*definition_image;
 	struct dev				*ctrlr;
 	struct spdk_nvme_status			status;
+	int					ch;
 
 #if FOR_ONLY_ONE_TEST_DEVICE
 	ctrlr = devs;
@@ -727,6 +971,7 @@ static void nvme_csd_create_memory_range_set(void)
 
 	printf("Please Input The Path Of memory ranges definition Image\n");
 
+	while ((ch = getchar()) != '\n' && ch != EOF);
 	if (get_line(path, sizeof(path), stdin, false) == NULL) {
 		printf("Invalid path setting\n");
 		while (getchar() != '\n');
@@ -1119,6 +1364,13 @@ int main(int argc, char **argv)
 		fprintf(stderr, "spdk_nvme_probe() failed\n");
 		return 1;
 	}
+
+	if (TAILQ_EMPTY(&g_controllers)) {
+		fprintf(stderr, "no NVMe controllers found\n");
+		cleanup();
+		return 1;
+	}
+	printf("Initialization complete.\n");
 
 	qsort(devs, num_devs, sizeof(devs[0]), cmp_devs);
 

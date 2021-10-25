@@ -3302,6 +3302,15 @@ int spdk_nvme_ns_cmd_reservation_report(struct spdk_nvme_ns *ns,
 					void *payload, uint32_t len,
 					spdk_nvme_cmd_cb cb_fn, void *cb_arg);
 
+int
+spdk_nvme_csd_ns_cmd_execute_program(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
+				uint16_t ce_id, uint16_t p_id, 
+				uint16_t rs_id,
+				void * d_ptr, uint32_t d_size_byte,
+				void * c_param,
+				spdk_nvme_cmd_cb cb_fn, void *cb_arg,
+		       		uint32_t io_flags);
+
 /**
  * Submit a compare I/O to the specified NVMe namespace.
  *
