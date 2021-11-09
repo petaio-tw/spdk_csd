@@ -52,5 +52,8 @@ void cs_init(cs_init_param_t *param);
 CS_STATUS cs_scan_csxes(void);
 CS_STATUS cs_get_cse_list(void);
 CS_STATUS cs_map_cmb(void);
+void* cs_get_in_cmb_buf(void);
+void* cs_get_out_cmb_buf(void);
+CS_STATUS cs_exec_program(void *in_buf, void *out_buf);
 /* End of CS_VENDOR_H */
 #endif

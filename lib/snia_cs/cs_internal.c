@@ -37,6 +37,8 @@
 #define CMB_TEST_PATTERN		0x5aa5aa55
 
 #define SCAN_CSX_SCRIPT_CMD		"scan_csx.sh"
+
+#define VA_ALIGN_BYTES			64
 /**********************************************************/
 /*                                                        */
 /* MACRO FUNCTION DECLARATIONS                            */
@@ -77,6 +79,10 @@ static
 void cs_msg_get_cse_list_done_cb(void *cb_ctx);
 static
 void cs_msg_map_cmb_done_cb(void *cb_ctx);
+static
+void cs_msg_exec_program_done_cb(void *cb_ctx);
+static
+void cs_msg_exec_program_done_cb(void *cb_ctx);
 /**********************************************************/
 /*                                                        */
 /* STATIC VARIABLE DECLARATIONS                           */
@@ -350,6 +356,71 @@ CS_STATUS cs_map_cmb(void)
 	while (g_poll_event.issued_msg_cnt != g_poll_event.completed_msg_cnt);
 	return sts;		
 }
+
+void* cs_get_in_cmb_buf(void)
+{
+	cs_csx_t *csx = TAILQ_FIRST(&g_cs_mgmt.csx_list);
+	void *align_in_addr;
+
+	align_in_addr = (void *)SPDK_ALIGN_CEIL((uint64_t)csx->cmb_va, VA_ALIGN_BYTES);
+	return align_in_addr;
+}
+
+void* cs_get_out_cmb_buf(void)
+{
+	cs_csx_t *csx = TAILQ_FIRST(&g_cs_mgmt.csx_list);
+	void *align_out_addr;
+
+	align_out_addr = (void *)SPDK_ALIGN_CEIL(((uint64_t)csx->cmb_va + (csx->cmb_size / 2)), VA_ALIGN_BYTES);
+	return align_out_addr;
+}
+
+CS_STATUS cs_exec_program(void *in_buf, void *out_buf)
+{
+	bool b_clean_up = true;
+	CS_STATUS sts = CS_SUCCESS;
+	cs_csx_t *csx = TAILQ_FIRST(&g_cs_mgmt.csx_list);
+
+	memset(&g_poll_event, 0, sizeof(g_poll_event));
+
+	// allocate msg_ctx
+	cs_msg_exec_program_ctx_t *msg_ctx = calloc(1, sizeof(*msg_ctx));
+	if (msg_ctx == NULL) {
+		SPDK_ERRLOG("calloc fail\n");
+		goto cleanup;
+	}
+
+	// init msg_ctx
+	msg_ctx->cpl_cb_fn = cs_msg_exec_program_done_cb;
+	msg_ctx->cpl_cb_ctx = msg_ctx;
+
+	msg_ctx->csx = csx;
+
+	msg_ctx->in_buf_addr = in_buf;
+	msg_ctx->out_buf_addr = out_buf;
+
+	// send msg cmd
+	if (spdk_thread_send_msg(g_cs_mgmt.app_thread, cs_msg_exec_program, msg_ctx) < 0) {
+		SPDK_ERRLOG("send cs_msg fail\n");
+		goto cleanup;
+	}
+
+	g_poll_event.issued_msg_cnt++;
+	b_clean_up = false;
+
+	cleanup:
+	if (b_clean_up == true) {
+		if (msg_ctx != NULL) {
+			free(msg_ctx);
+		}
+
+		sts = CS_NOT_ENOUGH_MEMORY;
+	}
+
+	while (g_poll_event.issued_msg_cnt != g_poll_event.completed_msg_cnt);
+	return sts;	
+}
+
 //---------------------------------------------
 // snia cs APIs
 //
@@ -553,10 +624,10 @@ void cs_msg_map_cmb_done_cb(void *cb_ctx)
 	cs_msg_map_cmb_ctx_t *msg_ctx = (cs_msg_map_cmb_ctx_t *)cb_ctx;
 	cs_csx_t *csx = msg_ctx->csx;
 
-	SPDK_NOTICELOG("%s:cmb_va=%p,cmb_pa=%08lX, size=%ld\n", 
+	SPDK_NOTICELOG("%s:cmb_va=%p,cmb_pa=%08lX,size=%ld,cmb_base_pa=%08lX\n", 
 		csx->csx_name, csx->cmb_va, 
-		(csx->cmb_va) ? spdk_vtophys(csx->cmb_va, &csx->cmb_size) : 0,
-		csx->cmb_size);
+		(csx->cmb_va) ? spdk_vtophys(csx->cmb_va, NULL) : 0,
+		csx->cmb_size, csx->cmb_base_pa);
 
 	uint32_t *cmb_buf = (uint32_t *)csx->cmb_va;
 	*cmb_buf = CMB_TEST_PATTERN;
@@ -566,5 +637,14 @@ void cs_msg_map_cmb_done_cb(void *cb_ctx)
 
 	g_poll_event.completed_msg_cnt++;
 	free(msg_ctx);	
+}
+
+static
+void cs_msg_exec_program_done_cb(void *cb_ctx)
+{
+	cs_msg_exec_program_ctx_t *msg_ctx = (cs_msg_exec_program_ctx_t *)cb_ctx;	
+
+	g_poll_event.completed_msg_cnt++;
+	free(msg_ctx);
 }
 /* End of CS_INTERNAL_C */

@@ -251,7 +251,10 @@ struct spdk_bdev_fn_table {
 	void *(*map_cmb)(void *ctx, size_t *cmb_size);
 
 	/** unmap cmb */
-	void (*unmap_cmb)(void *ctx);	
+	void (*unmap_cmb)(void *ctx);
+
+	/** get base physical address of cmb */
+	uint64_t (*get_cmb_base_pa)(void *ctx);		
 };
 
 /** bdev I/O completion status */

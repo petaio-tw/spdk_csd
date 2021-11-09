@@ -103,6 +103,8 @@ typedef struct _cs_msg_exec_program_ctx {
 	// --- input ---	
 	cs_msg_cpl_cb_fn 		cpl_cb_fn;
 	void 				*cpl_cb_ctx;
+	void				*in_buf_addr;
+	void				*out_buf_addr;
 	// --- output ---
 	cs_csx_t			*csx;
 	cs_msg_rc_t 			rc;

@@ -517,6 +517,13 @@ nvme_pcie_ctrlr_unmap_io_cmb(struct spdk_nvme_ctrlr *ctrlr)
 	return rc;
 }
 
+static uint64_t
+nvme_pcie_ctrlr_get_cmb_bar_pa(struct spdk_nvme_ctrlr *ctrlr)
+{
+	struct nvme_pcie_ctrlr *pctrlr = nvme_pcie_ctrlr(ctrlr);
+	return pctrlr->cmb.bar_pa;
+}
+
 static void
 nvme_pcie_ctrlr_map_pmr(struct nvme_pcie_ctrlr *pctrlr)
 {
@@ -1139,6 +1146,7 @@ const struct spdk_nvme_transport_ops pcie_ops = {
 	.ctrlr_reserve_cmb = nvme_pcie_ctrlr_reserve_cmb,
 	.ctrlr_map_cmb = nvme_pcie_ctrlr_map_io_cmb,
 	.ctrlr_unmap_cmb = nvme_pcie_ctrlr_unmap_io_cmb,
+	.ctrlr_get_cmb_base_pa = nvme_pcie_ctrlr_get_cmb_bar_pa,
 
 	.ctrlr_enable_pmr = nvme_pcie_ctrlr_enable_pmr,
 	.ctrlr_disable_pmr = nvme_pcie_ctrlr_disable_pmr,

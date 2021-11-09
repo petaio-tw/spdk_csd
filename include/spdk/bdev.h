@@ -1753,7 +1753,8 @@ int
 spdk_bdev_nvme_map_cmb(struct spdk_bdev_desc *desc, void **va, size_t *cmb_size);
 int
 spdk_bdev_nvme_unmap_cmb(struct spdk_bdev_desc *desc);
-
+uint64_t
+spdk_bdev_nvme_get_cmb_base_pa(struct spdk_bdev_desc *desc);
 #ifdef __cplusplus
 }
 #endif

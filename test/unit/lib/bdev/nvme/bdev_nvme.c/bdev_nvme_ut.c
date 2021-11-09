@@ -835,6 +835,12 @@ spdk_nvme_ctrlr_unmap_cmb(struct spdk_nvme_ctrlr *ctrlr)
 	return;
 }
 
+uint64_t
+spdk_nvme_ctrlr_get_cmb_base_pa(struct spdk_nvme_ctrlr *ctrlr)
+{
+	return 0;
+}
+
 uint32_t
 spdk_nvme_ns_get_id(struct spdk_nvme_ns *ns)
 {

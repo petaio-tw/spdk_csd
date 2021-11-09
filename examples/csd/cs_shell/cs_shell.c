@@ -41,8 +41,46 @@
 /* {DATA TYPE define for LOCAL reference ONLY.}           */
 /*                                                        */  
 /**********************************************************/
+#pragma pack(push, 1)
+/*
+ * Bitmap file header
+ */
+typedef struct tagBITMAPFILEHEADER {
+    uint8_t    	bfType[2];    /* 2 bytes */
+    uint32_t   	bfSize;       /* 4 bytes */
+    uint16_t 	bfReserved1;  /* 2 bytes */
+    uint16_t 	bfReserved2;  /* 2 bytes */
+    uint32_t  	bfOffBits;    /* 4 bytes */
+} BITMAPFILEHEADER;
 
+/*
+ * Bitmap info header (Windows)
+ */
+typedef struct tagBITMAPINFOHEADER {
+    uint32_t   	biSize;          /* 4 bytes */
+    uint32_t    biWidth;         /* 4 bytes */
+    uint32_t    biHeight;        /* 4 bytes */
+    uint16_t 	biPlanes;        /* 2 bytes */
+    uint16_t 	biBitCount;      /* 2 bytes */
+    uint32_t   	biCompression;   /* 4 bytes */
+    uint32_t   	biSizeImage;     /* 4 bytes */
+    uint32_t    biXPixPerMeter;  /* 4 bytes */
+    uint32_t    biYPixPerMeter;  /* 4 bytes */
+    uint32_t  	biClrUsed;       /* 4 bytes */
+    uint32_t  	biClrImportant;  /* 4 bytes */
+} BITMAPINFOHEADER;
 
+/*
+ * Bitmap core header (OS/2)
+ */
+typedef struct tagBITMAPCOREHEADER {
+    uint32_t   	bcSize;      /* 4 bytes */
+    uint16_t    bcWidth;     /* 2 bytes */
+    uint16_t    bcHeight;    /* 2 bytes */
+    uint16_t 	bcPlanes;    /* 2 bytes */
+    uint16_t 	bcBitCount;  /* 2 bytes */
+} BITMAPCOREHEADER;
+#pragma pack(pop)
 /**********************************************************/
 /*                                                        */
 /* LOCAL SUBPROGRAM DECLARATIONS                          */
@@ -56,7 +94,7 @@ int32_t cs_shell_cmd_scan_csx(void);
 static
 int32_t cs_shell_cmd_get_csxes(void);
 static
-int32_t cs_shell_cmd_exec_prog(void);
+int32_t cs_shell_cmd_exec_program(void);
 static
 int32_t cs_shell_cmd_mem_write(void);
 static
@@ -83,7 +121,7 @@ static const SHELL_CMD_TABLE_T shell_cmd_table[] =
 	{"help",			"print command list",			spdk_shell_cmd_print_list},
 	{"scsx",			"scan csx",				cs_shell_cmd_scan_csx},
 	{"csxes",			"get csxes",				cs_shell_cmd_get_csxes},
-	{"execp",			"exec prog",				cs_shell_cmd_exec_prog},
+	{"execp",			"exec prog",				cs_shell_cmd_exec_program},
 	{"mw",				"mem write",				cs_shell_cmd_mem_write},
 	{"mr",				"mem read",				cs_shell_cmd_mem_read},		
 	{NULL, NULL, NULL},		// should end with NULL
@@ -177,7 +215,7 @@ int32_t cs_shell_cmd_get_csxes(void)
 }
 
 static
-int32_t cs_shell_cmd_exec_prog(void)
+int32_t cs_shell_cmd_exec_program(void)
 {	
 #if 0	
 	int i;
@@ -216,8 +254,76 @@ int32_t cs_shell_cmd_exec_prog(void)
 	if (status != CS_SUCCESS) {
 		ERROR_OUT("Compute exec error\n"); 
 	}
-#endif
+#else
 
+#if 0	// bit flipping example
+	uint32_t *in_buf, *out_buf;
+
+	in_buf = cs_get_in_cmb_buf();
+	*in_buf = 0x5AA5AA55;
+
+	out_buf = cs_get_out_cmb_buf();
+	cs_exec_program(in_buf, out_buf);
+
+	printf("cs exec result=%08X\n", *out_buf);
+#else	// RGB to gray example
+
+	/* declare a file pointer */
+	FILE    *infile, *outfile;
+	char    *in_buf = (char *)cs_get_in_cmb_buf();	
+	char    *out_buf = (char *)cs_get_out_cmb_buf();
+	long    numbytes;
+	size_t  read_cnt;
+	
+	/* open an existing file for reading */
+	infile = fopen("flowers.bmp", "r");
+	
+	/* quit if the file does not exist */
+	if (infile == NULL) {
+		return 1;
+	}
+	
+	/* Get the number of bytes */
+	fseek(infile, 0L, SEEK_END);
+	numbytes = ftell(infile);
+	
+	/* reset the file position indicator to 
+	the beginning of the file */
+	fseek(infile, 0L, SEEK_SET);
+	
+	/* copy all the text into the buffer */
+	read_cnt = fread(in_buf, sizeof(char), numbytes, infile);
+	printf("file size=%ld, read cnt=%ld\n", numbytes, read_cnt);	
+	fclose(infile);
+
+
+	BITMAPFILEHEADER *file_header = (BITMAPFILEHEADER *)in_buf;
+	printf("bfType=%c%c,bfSize=%d\n", file_header->bfType[0], file_header->bfType[1], file_header->bfSize);
+	uint32_t *info_header_size = (uint32_t *)((uint64_t)in_buf + sizeof(BITMAPFILEHEADER));
+	if (*info_header_size == 12) {
+		BITMAPCOREHEADER *core_header = (BITMAPCOREHEADER *)info_header_size;
+		printf("(core)w=%d,h=%d\n",core_header->bcWidth, core_header->bcHeight);
+	} else if (*info_header_size == 40) {
+		BITMAPINFOHEADER *info_header = (BITMAPINFOHEADER *)info_header_size;
+		printf("(info)w=%d,h=%d\n",info_header->biWidth, info_header->biHeight);
+	} else {
+		printf("info_header_size=%d\n", *info_header_size);
+		return -1;
+	}
+
+
+	cs_exec_program(in_buf, out_buf);
+
+	outfile = fopen("flowers_gray.bmp", "w");
+	/* quit if the file does not exist */
+	if (outfile == NULL) {
+		return 1;
+	}
+
+	fwrite(out_buf, numbytes, 1, outfile);
+	fclose(outfile);
+#endif
+#endif
 	return 0;
 }
 

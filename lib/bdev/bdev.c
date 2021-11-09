@@ -4953,6 +4953,17 @@ spdk_bdev_nvme_unmap_cmb(struct spdk_bdev_desc *desc)
 	return 0;	
 }
 
+uint64_t
+spdk_bdev_nvme_get_cmb_base_pa(struct spdk_bdev_desc *desc)
+{
+	struct spdk_bdev *bdev = spdk_bdev_desc_get_bdev(desc);
+
+	if (bdev->fn_table->get_cmb_base_pa) {
+		return bdev->fn_table->get_cmb_base_pa(bdev->ctxt);
+	}
+
+	return 0;
+}
 
 static void bdev_abort_retry(void *ctx);
 static void bdev_abort(struct spdk_bdev_io *parent_io);

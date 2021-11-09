@@ -1355,6 +1355,7 @@ struct spdk_nvme_qpair *nvme_transport_ctrlr_create_io_qpair(struct spdk_nvme_ct
 int nvme_transport_ctrlr_reserve_cmb(struct spdk_nvme_ctrlr *ctrlr);
 void *nvme_transport_ctrlr_map_cmb(struct spdk_nvme_ctrlr *ctrlr, size_t *size);
 int nvme_transport_ctrlr_unmap_cmb(struct spdk_nvme_ctrlr *ctrlr);
+uint64_t nvme_transport_ctrlr_get_cmb_base_pa(struct spdk_nvme_ctrlr *ctrlr);
 int nvme_transport_ctrlr_enable_pmr(struct spdk_nvme_ctrlr *ctrlr);
 int nvme_transport_ctrlr_disable_pmr(struct spdk_nvme_ctrlr *ctrlr);
 void *nvme_transport_ctrlr_map_pmr(struct spdk_nvme_ctrlr *ctrlr, size_t *size);

@@ -260,6 +260,19 @@ nvme_transport_ctrlr_unmap_cmb(struct spdk_nvme_ctrlr *ctrlr)
 	return 0;
 }
 
+uint64_t
+nvme_transport_ctrlr_get_cmb_base_pa(struct spdk_nvme_ctrlr *ctrlr)
+{
+	const struct spdk_nvme_transport *transport = nvme_get_transport(ctrlr->trid.trstring);
+
+	assert(transport != NULL);
+	if (transport->ops.ctrlr_get_cmb_base_pa != NULL) {
+		return transport->ops.ctrlr_get_cmb_base_pa(ctrlr);
+	}
+
+	return 0;
+}
+
 int
 nvme_transport_ctrlr_enable_pmr(struct spdk_nvme_ctrlr *ctrlr)
 {

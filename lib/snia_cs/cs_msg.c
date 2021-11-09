@@ -57,6 +57,12 @@ static void
 csx_bdev_event_cb(enum spdk_bdev_event_type type, struct spdk_bdev *bdev, void *event_ctx);
 static 
 int init_get_log_page_cmd(struct spdk_nvme_cmd *cmd, uint8_t log_page_id, uint32_t payload_size);
+static 
+int init_exec_program_cmd(
+	struct spdk_nvme_cmd 	*cmd,
+	cs_csx_t 		*csx,
+	void 			*in_buf_addr,
+	void 			*out_buf_addr);
 /**********************************************************/
 /*                                                        */
 /* STATIC VARIABLE DECLARATIONS                           */
@@ -164,6 +170,13 @@ void cs_msg_map_cmb(void *ctx)
 		goto out;
 	}
 
+	msg_ctx->csx->cmb_base_pa = spdk_bdev_nvme_get_cmb_base_pa(msg_ctx->bdev_desc);
+	if (msg_ctx->csx->cmb_base_pa == 0) {
+		SPDK_ERRLOG("Could not get bar pa cmb: %s\n", csx->csx_name);
+		msg_ctx->rc = CS_MSG_RC_GEN_FAIL;
+		goto out;
+	}
+
 	rc = spdk_bdev_nvme_map_cmb(msg_ctx->bdev_desc, &msg_ctx->csx->cmb_va, &msg_ctx->csx->cmb_size);
 	if (rc) {
 		SPDK_ERRLOG("Could not map cmb: %s\n", csx->csx_name);
@@ -212,9 +225,15 @@ void cs_msg_exec_program(void *ctx)
 	/* get log page command */
 	struct spdk_nvme_cmd cmd = {};
 
+	init_exec_program_cmd(&cmd, msg_ctx->csx, msg_ctx->in_buf_addr, msg_ctx->out_buf_addr);
 	rc = spdk_bdev_nvme_io_passthru(msg_ctx->bdev_desc, bdev_io_channel,
 					&cmd, NULL, 0,
 					exec_program_complete_cb, msg_ctx);
+	if (rc) {		
+		goto out;
+	}
+
+	return;					
 
 out:
 	if (msg_ctx->bdev_desc) {
@@ -267,7 +286,7 @@ void get_cse_list_complete_cb(struct spdk_bdev_io *bdev_io, bool success, void *
 static
 void exec_program_complete_cb(struct spdk_bdev_io *bdev_io, bool success, void *cb_arg) 
 {
-	cs_msg_get_cse_list_ctx_t *msg_ctx = (cs_msg_get_cse_list_ctx_t *)cb_arg;
+	cs_msg_exec_program_ctx_t *msg_ctx = (cs_msg_exec_program_ctx_t *)cb_arg;
 
 	if (!success) {
 		msg_ctx->rc = CS_MSG_RC_GEN_FAIL;
@@ -308,6 +327,24 @@ int init_get_log_page_cmd(struct spdk_nvme_cmd *cmd, uint8_t log_page_id, uint32
 
 	cmd->cdw11_bits.get_log_page.numdu = numdu;
 
+	return 0;
+}
+
+static 
+int init_exec_program_cmd(
+	struct spdk_nvme_cmd 	*cmd,
+	cs_csx_t 		*csx,
+	void 			*in_buf_addr,
+	void 			*out_buf_addr)
+{
+	cmd->opc = SPDK_CSD_OPC_EXECUTE_PROGRAM;
+	cmd->cdw2_bits.csd_execute_program.ceid = 0;
+	cmd->cdw2_bits.csd_execute_program.pid = 2;
+
+	cmd->cdw10 = (uint32_t)(spdk_vtophys(in_buf_addr, NULL) - csx->cmb_base_pa);
+	cmd->cdw11 = (uint32_t)(spdk_vtophys(out_buf_addr, NULL) - csx->cmb_base_pa);
+
+	SPDK_NOTICELOG("cdw10=%08X,cdw11=%08X\n", cmd->cdw10, cmd->cdw11);
 	return 0;
 }
 /* End of CS_MSG_C */

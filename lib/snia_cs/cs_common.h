@@ -49,6 +49,7 @@ typedef struct _cs_csx {
 	struct spdk_csd_compute_engine_list *p_cse_list;
 	uint32_t cse_list_size;
 	void *cmb_va;
+	uint64_t cmb_base_pa;
 	size_t cmb_size;
 } cs_csx_t;
 

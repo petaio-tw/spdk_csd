@@ -4384,6 +4384,16 @@ spdk_nvme_ctrlr_unmap_cmb(struct spdk_nvme_ctrlr *ctrlr)
 	nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
 }
 
+uint64_t
+spdk_nvme_ctrlr_get_cmb_base_pa(struct spdk_nvme_ctrlr *ctrlr)
+{
+	nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
+	uint64_t base_pa = nvme_transport_ctrlr_get_cmb_base_pa(ctrlr);
+	nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
+
+	return base_pa;
+}
+
 int
 spdk_nvme_ctrlr_enable_pmr(struct spdk_nvme_ctrlr *ctrlr)
 {

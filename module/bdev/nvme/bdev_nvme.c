@@ -1230,6 +1230,15 @@ bdev_nvme_unmap_cmb(void *ctx)
 	spdk_nvme_ctrlr_unmap_cmb(ctrlr);	
 }
 
+static uint64_t
+bdev_nvme_get_cmb_base_pa(void *ctx)
+{
+	struct nvme_bdev *nvme_bdev = ctx;
+	struct spdk_nvme_ctrlr *ctrlr = bdev_nvme_get_ctrlr(&nvme_bdev->disk);
+
+	return spdk_nvme_ctrlr_get_cmb_base_pa(ctrlr);
+}
+
 static const char *
 _nvme_ana_state_str(enum spdk_nvme_ana_state ana_state)
 {
@@ -1409,6 +1418,7 @@ static const struct spdk_bdev_fn_table nvmelib_fn_table = {
 	.get_module_ctx		= bdev_nvme_get_module_ctx,
 	.map_cmb		= bdev_nvme_map_cmb,
 	.unmap_cmb		= bdev_nvme_unmap_cmb,
+	.get_cmb_base_pa	= bdev_nvme_get_cmb_base_pa,
 };
 
 typedef int (*bdev_nvme_parse_ana_log_page_cb)(

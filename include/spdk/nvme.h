@@ -2300,6 +2300,13 @@ void *spdk_nvme_ctrlr_map_cmb(struct spdk_nvme_ctrlr *ctrlr, size_t *size);
 void spdk_nvme_ctrlr_unmap_cmb(struct spdk_nvme_ctrlr *ctrlr);
 
 /**
+ * Get base physical address of cmb.
+ *
+ * \param ctrlr Controller from which to get pa of cmb.
+ */
+uint64_t spdk_nvme_ctrlr_get_cmb_base_pa(struct spdk_nvme_ctrlr *ctrlr);
+
+/**
  * Enable the Persistent Memory Region
  *
  * \param ctrlr Controller that contains the Persistent Memory Region
@@ -3691,6 +3698,8 @@ struct spdk_nvme_transport_ops {
 	void *(*ctrlr_map_cmb)(struct spdk_nvme_ctrlr *ctrlr, size_t *size);
 
 	int (*ctrlr_unmap_cmb)(struct spdk_nvme_ctrlr *ctrlr);
+
+	uint64_t(*ctrlr_get_cmb_base_pa)(struct spdk_nvme_ctrlr *ctrlr);
 
 	int (*ctrlr_enable_pmr)(struct spdk_nvme_ctrlr *ctrlr);
 
