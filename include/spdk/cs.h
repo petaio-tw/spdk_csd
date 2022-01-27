@@ -157,7 +157,7 @@ typedef enum {
 
 typedef enum { 
   	CS_STREAM_COMPUTE_TYPE = 1 
-} CS_STREAM_TYPE;
+} CS_ALOC_STREAM_TYPE;
 
 typedef enum { 
 	CS_FILE_SYSTEMS_SUPPORTED = 1, 
@@ -852,7 +852,7 @@ reserved or not in use.
  * @param[out] StreamHandle A pointer to a buffer to hold the returned stream handle if successful
  * @return CS_STATUS 
  */
-CS_STATUS csAllocStream(CS_DEV_HANDLE DevHandle, CS_STREAM_TYPE Type, CS_STREAM_HANDLE *StreamHandle);
+CS_STATUS csAllocStream(CS_DEV_HANDLE DevHandle, CS_ALOC_STREAM_TYPE Type, CS_STREAM_HANDLE *StreamHandle);
 
 /**
  * @brief Releases a previously allocated stream resource with the device.
