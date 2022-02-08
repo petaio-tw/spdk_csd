@@ -36,6 +36,8 @@ static char **lsh_split_line(char *line);
 static void lsh_loop(void);
 //---------------------------------- spdk start
 // add static function here
+static
+void* app_thread(void* data);
 static 
 int cs_shell_parse_arg(int ch, char *arg);
 static 
@@ -317,6 +319,17 @@ int main(int argc, char **argv)
 // add spdk function here
 
 /*
+ * real application thread, not spdk_thread
+ */
+static
+void* app_thread(void* data)
+{
+  lsh_loop();
+
+  return 0;
+}
+
+/*
  * This function is called to parse the parameters that are specific to this application
  */
 static 
@@ -339,8 +352,10 @@ void cs_shell_usage(void)
  */
 static 
 void cs_shell_start(void *arg)
-{
-  lsh_loop();
+{ 
+  pthread_t app_thread_handle;
+
+  pthread_create(&app_thread_handle, NULL, app_thread, NULL);
 }
 
 int

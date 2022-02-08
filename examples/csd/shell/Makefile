@@ -35,10 +35,18 @@ SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 include $(SPDK_ROOT_DIR)/mk/spdk.modules.mk
 
-APP = csd_shell
+APP = cs_shell
 
 C_SRCS := shell.c
 
-SPDK_LIB_LIST = $(ACCEL_MODULES_LIST) event event_bdev
+SPDK_LIB_LIST = $(ALL_MODULES_LIST) event event_bdev conf
+
+ifeq ($(OS),Linux)
+SPDK_LIB_LIST += event_nbd
+endif
+
+ifeq ($(SPDK_ROOT_DIR)/lib/env_dpdk,$(CONFIG_ENV))
+SPDK_LIB_LIST += env_dpdk_rpc
+endif
 
 include $(SPDK_ROOT_DIR)/mk/spdk.app.mk
