@@ -1,0 +1,9 @@
+{
+	global:
+
+	# Public functions
+	spdk_cs_initialize;
+	spdk_cs_mgr_init;
+
+	local: *;
+};

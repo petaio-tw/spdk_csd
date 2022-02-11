@@ -65,7 +65,7 @@
         {
           "method": "bdev_virtio_attach_controller",
           "params": {
-            "name": "virtio_csx0",
+            "name": "csx0",
             "dev_type": "blk",
             "trtype": "user",
             "traddr": "/home/alexhsu/Codebase/spdk_csd/cs_dev/vhost_csx0",

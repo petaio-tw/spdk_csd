@@ -591,6 +591,7 @@ virtio_user_dev_init(struct virtio_dev *vdev, const char *name, const char *path
 	}
 
 	vdev->is_hw = 0;
+	snprintf(vdev->tr_addr, PATH_MAX, "%s", path);
 
 	snprintf(dev->path, PATH_MAX, "%s", path);
 	dev->queue_size = queue_size;

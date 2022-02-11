@@ -558,6 +558,10 @@ virtio_blk_dev_init(struct virtio_blk_dev *bvdev, uint16_t max_queues)
 		return rc;
 	}
 
+	// add vhost socket path for bdev alias. 
+	// will be used for get csx from path.
+	spdk_bdev_alias_add(bdev, vdev->tr_addr);
+
 	return 0;
 }
 

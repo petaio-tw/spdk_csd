@@ -19,6 +19,13 @@
 //---------------------------------- spdk start
 // add header here
 #include "spdk/event.h"
+#include "spdk/thread.h"
+#include "spdk/cs_spdk.h"
+//---------------------------------- spdk end
+
+//---------------------------------- spdk start
+// add static variable here
+static struct spdk_thread *g_main_thread;
 //---------------------------------- spdk end
 
 /*
@@ -352,9 +359,15 @@ void cs_shell_usage(void)
  */
 static 
 void cs_shell_start(void *arg)
-{ 
-  pthread_t app_thread_handle;
+{
+  // for cs init
+  spdk_cs_mgr_init();
 
+  // management for main spdk_thread
+  g_main_thread = spdk_get_thread();
+
+  // create application thread
+  pthread_t app_thread_handle;
   pthread_create(&app_thread_handle, NULL, app_thread, NULL);
 }
 

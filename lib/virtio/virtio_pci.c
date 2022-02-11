@@ -798,6 +798,8 @@ virtio_pci_dev_init(struct virtio_dev *vdev, const char *name,
 	}
 
 	vdev->is_hw = 1;
+	// TODO: init vdev->tr_addr
+
 	vdev->modern = 1;
 	hw->vdev = vdev;
 

@@ -1,7 +1,7 @@
 /**
  * @file cs.h
  * @author Alex Hsu (ahsu@petaio.com)
- * @brief 
+ * @brief CS_APIs define in SNIA spec.
  * @version 0.1
  * @date 2021-10-06
  * 

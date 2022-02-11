@@ -31,22 +31,15 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../..)
+SPDK_ROOT_DIR := $(abspath $(CURDIR)/../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
-include $(SPDK_ROOT_DIR)/mk/spdk.modules.mk
 
-APP = cs_shell
+SO_VER := 0
+SO_MINOR := 1
 
-C_SRCS := shell.c
+C_SRCS = cs.c cs_spdk.c cs_mgr.c cs_csx.c cs_cse.c
+LIBNAME = cs
 
-SPDK_LIB_LIST = $(ALL_MODULES_LIST) event event_cs conf cs
+SPDK_MAP_FILE = $(abspath $(CURDIR)/cs.map)
 
-ifeq ($(OS),Linux)
-SPDK_LIB_LIST += event_nbd
-endif
-
-ifeq ($(SPDK_ROOT_DIR)/lib/env_dpdk,$(CONFIG_ENV))
-SPDK_LIB_LIST += env_dpdk_rpc
-endif
-
-include $(SPDK_ROOT_DIR)/mk/spdk.app.mk
+include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk

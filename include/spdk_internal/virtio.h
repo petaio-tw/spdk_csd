@@ -80,6 +80,9 @@ struct virtio_dev {
 
 	int		is_hw;
 
+	/** be used for get csx from path */
+	char		tr_addr[PATH_MAX];
+
 	/** Modern/legacy virtio device flag. */
 	uint8_t		modern;
 
