@@ -47,13 +47,22 @@ typedef uint64_t u64;
 
 typedef int32_t s32;
 
+typedef uint32_t CS_FUNCTION_ID;
+#if 0
 typedef uint32_t CS_DEV_HANDLE;
 typedef uint32_t CS_CSE_HANDLE;
-typedef uint32_t CS_FUNCTION_ID;
 typedef uint32_t CS_MEM_HANDLE;
 typedef uint32_t CS_STREAM_HANDLE;
 typedef uint32_t CS_EVT_HANDLE;
 typedef uint32_t CS_BATCH_HANDLE;
+#else
+typedef void* CS_DEV_HANDLE;
+typedef void* CS_CSE_HANDLE;
+typedef void* CS_MEM_HANDLE;
+typedef void* CS_STREAM_HANDLE;
+typedef void* CS_EVT_HANDLE;
+typedef void* CS_BATCH_HANDLE;
+#endif
 
 typedef void* CS_MEM_PTR;
 typedef uint32_t CS_BATCH_INDEX;
@@ -398,12 +407,14 @@ typedef struct {
 // Device Discovery
 //-----------------------------
 /**
- * @brief This function returns one or more CSEs available based on the query criteria
+ * @brief This function returns one or more CSEs available based on the query criteria. 
+ * Editor’s note: Need mechanism to associate CSE name with a CSx. Query CSEs 
+ * within a CSx (once CSx is open) 
  * 
  * @param[in] FunctionName Name of computational storage function to query
  * @param[inout] Length Length in bytes of buffer passed for output
  * @param[out] Buffer Returns a list of CSENames
- * @return CS_STATUS 
+ * @return CS_STATUS
  */
 CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer);
 
