@@ -705,6 +705,22 @@ enum spdk_nvme_cmd_fuse {
 	SPDK_NVME_CMD_FUSE_MASK		= 0x3,  /**< fused operation flags mask */
 };
 
+//----------------------------------------------------------------------
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+typedef uint8_t spdk_nvme_program_type_t;
+#define SPDK_NVME_PRG_TYPE_DEVICE_DEFINED	0
+#define SPDK_NVME_PRG_TYPE_EBPF			1
+
+// computational engine identifier
+typedef uint16_t spdk_nvme_ceid_t;
+// memory region identifier
+typedef uint16_t spdk_nvme_mem_region_id_t;
+// program identifier
+typedef uint16_t spdk_nvme_pid;
+
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+//----------------------------------------------------------------------
+
 /**
  * Data used by Set Features/Get Features \ref SPDK_NVME_FEAT_ARBITRATION
  */
@@ -1428,6 +1444,12 @@ enum spdk_nvme_generic_command_status_code {
 /**
  * Command specific status codes
  */
+// Status codes of 00h to 7Fh are for Admin command errors. 
+// Status codes of 80h to BFh are specific to the selected I/O command sets.
+
+/**
+ * Command specific status codes, NVMe Base spec.
+ */
 enum spdk_nvme_command_specific_status_code {
 	SPDK_NVME_SC_COMPLETION_QUEUE_INVALID		= 0x00,
 	SPDK_NVME_SC_INVALID_QUEUE_IDENTIFIER		= 0x01,
@@ -1477,6 +1499,29 @@ enum spdk_nvme_command_specific_status_code {
 	SPDK_NVME_SC_CMD_SIZE_LIMIT_SIZE_EXCEEDED	= 0x83,
 };
 
+//----------------------------------------------------------------------
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+/**
+ * Command specific status codes, Computational Programs Command Set
+ */
+enum spdk_cs_command_specific_status_code {
+	SPDK_NVME_SC_INSUFFICIEND_PROGRAM_RESOURCES	= 0x30,
+	SPDK_NVME_SC_INVALID_COMPUTE_ENGINE		= 0x31,
+	SPDK_NVME_SC_INVALID_MEMORY_RANGE_SET		= 0x32,
+	SPDK_NVME_SC_INVALID_MEMORY_REGION		= 0x33,
+	SPDK_NVME_SC_INVALID_PROGRAM_DATA		= 0x34,
+	SPDK_NVME_SC_INVALID_PROGRAM_IDENTIFIER		= 0x35,
+	SPDK_NVME_SC_INVALID_PROGRAM_TYPE		= 0x36,
+	SPDK_NVME_SC_MAXIMUM_MEMORY_RANGES_EXCEEDED	= 0x37,
+	SPDK_NVME_SC_MEMORY_RANGE_SET_IN_USE		= 0x38,
+	SPDK_NVME_SC_PROGRAM_NOT_ACTIVATED		= 0x39,
+	SPDK_NVME_SC_PROGRAM_IDENTIFIER_IN_USE		= 0x3A,
+	SPDK_NVME_SC_PROGRAM_IDENTIFIER_NOT_AVAILABLE	= 0x3B,
+	SPDK_NVME_SC_PROGRAM_UNLOAD_NOT_ALLOWED		= 0x3C,
+};
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+//----------------------------------------------------------------------
+
 /**
  * Media error status codes
  */
@@ -1507,6 +1552,13 @@ enum spdk_nvme_path_status_code {
 };
 
 #define SPDK_NVME_MAX_OPC 0xff
+
+/**
+ * Opcode by Field 
+ * (07)    - Standard Command
+ * (06:02) - Function
+ * (01:00) - Data Transfer. 00b = no data; 01b = host to ctrl; 10b = ctrl to host; 11b = bidirectional
+ */
 
 /**
  * Admin opcodes
@@ -1550,6 +1602,15 @@ enum spdk_nvme_admin_opcode {
 	SPDK_NVME_OPC_SANITIZE				= 0x84,
 
 	SPDK_NVME_OPC_GET_LBA_STATUS			= 0x86,
+
+	//----------------------------------------------------------------------
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+	SPDK_NVME_OPC_PROGRAM_ACTIVATION		= 0x20,
+	SPDK_NVME_OPC_LOAD_PROGRAM			= 0x23,
+	SPDK_NVME_OPC_CREATE_MEMORY_RANGE_SET		= 0x24,
+	SPDK_NVME_OPC_DELETE_MEMORY_RANGE_SET		= 0x26,	
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+	//----------------------------------------------------------------------
 };
 
 /**
@@ -1586,6 +1647,18 @@ enum spdk_nvme_zns_opcode {
 	SPDK_NVME_OPC_ZONE_MGMT_RECV			= 0x7a,
 	SPDK_NVME_OPC_ZONE_APPEND			= 0x7d,
 };
+
+//----------------------------------------------------------------------
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+/**
+ * Computational Programs command set opcodes 
+ * 
+ */
+enum spdk_nvme_cs_opcode {
+	SPDK_NVME_OPC_CS_EXECUTE_PROGRAM		= 0x80,
+};
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+//----------------------------------------------------------------------
 
 /**
  * Data transfer (bits 1:0) of an NVMe opcode.
@@ -2262,6 +2335,35 @@ struct spdk_nvme_zns_ctrlr_data {
 };
 SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_zns_ctrlr_data) == 4096, "Incorrect size");
 
+//----------------------------------------------------------------------
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+struct __attribute__((packed)) spdk_nvme_cs_ctrlr_capabilities_features {
+	uint16_t num_downloadable_prog_type_records;
+	uint8_t max_num_ranges_in_mem_range_sets;
+	uint16_t max_num_mem_range_sets;
+	uint16_t mem_range_granularity;
+	uint8_t reserved[25];
+};
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_cs_ctrlr_capabilities_features) == 32, "Incorrect size");
+
+struct spdk_nvme_cs_downloadable_prog_type_desc {
+	spdk_nvme_program_type_t prog_type;
+	uint8_t reserved[7];
+	uint64_t max_size_per_prog;
+	uint64_t max_size_all_prog;
+	union {
+		uint64_t val;
+	} spec;
+};
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_cs_downloadable_prog_type_desc) == 32, "Incorrect size");
+
+struct spdk_nvme_cs_ctrlr_data {
+	struct spdk_nvme_cs_ctrlr_capabilities_features cap_feat;
+	struct spdk_nvme_cs_downloadable_prog_type_desc *downloadable_prog_type_desc;	 
+};
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+//----------------------------------------------------------------------
+
 struct __attribute__((packed)) spdk_nvme_primary_ctrl_capabilities {
 	/**  controller id */
 	uint16_t		cntlid;
@@ -2849,6 +2951,19 @@ enum spdk_nvme_log_page {
 	/* 0xC0-0xFF - vendor specific */
 	SPDK_NVME_LOG_VENDOR_SPECIFIC_START	= 0xc0,
 	SPDK_NVME_LOG_VENDOR_SPECIFIC_END	= 0xff,
+
+	//----------------------------------------------------------------------
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+
+	/** Program Information (mandatory) - \ref spdk_nvme_program_information_log */
+	SPDK_NVME_LOG_PROGRAM_INFORMATION		= 0x10,
+	/** Compute Engine Information (mandatory) - \ref spdk_nvme_compute_engine_information_log */
+	SPDK_NVME_LOG_COMPUTE_ENGINE_INFORMATION	= 0x11,
+	/** Compute Engine List (mandatory) - \ref spdk_nvme_compute_engine_identifiers_log */
+	SPDK_NVME_LOG_COMPUTE_ENGINE_LIST		= 0x12,	
+
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+	//----------------------------------------------------------------------
 };
 
 #define spdk_nvme_log_page_is_vendor_specific(lid) ((lid) >= SPDK_NVME_LOG_VENDOR_SPECIFIC_START)
@@ -3137,6 +3252,113 @@ struct spdk_nvme_firmware_page {
 	uint8_t			reserved2[448];
 };
 SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_firmware_page) == 512, "Incorrect size");
+
+//----------------------------------------------------------------------
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+
+/**
+ * Program Information Log (\ref SPDK_NVME_LOG_PROGRAM_INFORMATION)
+ */
+#define MAX_COMPUTE_ENGINE_DESC		8
+#define MAX_UUID_BYTE_SIZE             	16
+
+// Program Unique ID (PUID)
+typedef union _spdk_nvme_puid {
+	uint64_t	val;
+	struct _field {
+		uint64_t	oui_36 	: 36;	// 36 bit Organizationally Unique Identifier
+		uint64_t	upi	: 28;	// Unique Program Identifier
+	} field;
+} spdk_nvme_puid;
+
+struct spdk_nvme_compute_engine_descriptor_data {
+
+	uint16_t compute_engine_identifier;
+	struct {
+		uint8_t	activated		: 1;
+		uint8_t	reserved1		: 7;
+	} sts;
+	uint8_t reserved0;
+};
+
+struct spdk_nvme_program_information_data {
+
+	struct
+	{
+		uint8_t	program_entry_occupied		: 1;
+		uint8_t	program_entry_type_downloadable	: 1;
+		uint8_t	reserved0			: 6;
+	} prg_ety;
+
+	uint8_t number_of_associated_compute_engines;
+	uint8_t reserved1[2];
+	struct spdk_nvme_compute_engine_descriptor_data associated_compute_engine_descriptor[MAX_COMPUTE_ENGINE_DESC];
+	spdk_nvme_program_type_t program_type;
+	uint8_t reserved2[11];
+	uint8_t program_uuid[MAX_UUID_BYTE_SIZE];
+};
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_program_information_data) == 64, "Incorrect size");
+
+struct spdk_nvme_program_information_log {
+
+	uint32_t number_of_records;
+	uint8_t reserved[60];
+	struct spdk_nvme_program_information_data *program;
+};
+
+/**
+ * Compute Engine List Log (\ref SPDK_NVME_LOG_COMPUTE_ENGINE_LIST)
+ */
+struct spdk_nvme_compute_engine_identifiers_log {
+
+	uint16_t number_of_compute_engines;
+	uint8_t reserved[6];
+	spdk_nvme_ceid_t *compute_engine_identifier;
+};
+
+/**
+ * Compute Engine Information Log (\ref SPDK_NVME_LOG_COMPUTE_ENGINE_INFORMATION)
+ */
+#define MAX_MEMORY_REGION			(256) 
+#define MAX_PROGRAM_TYPE_IDENTIFIER		(128)
+
+struct spdk_nvme_memory_region_descriptor {
+	
+	spdk_nvme_mem_region_id_t memory_region_id;
+	uint16_t reserved;
+};
+
+struct spdk_nvme_supported_controller_memory_regions {
+
+	uint8_t number_of_controller_memory_regions;
+	uint8_t reserved[3];
+	struct spdk_nvme_memory_region_descriptor memory_region[MAX_MEMORY_REGION];
+};
+
+struct spdk_nvme_supported_program_types {
+
+	uint8_t number_of_supported_downloadable_program_types;
+	uint8_t reserved;
+	spdk_nvme_program_type_t program_type_identifier[MAX_PROGRAM_TYPE_IDENTIFIER];
+};
+
+struct spdk_nvme_general_engine_characteristics {
+
+	uint16_t max_actived_prorgrams;
+	uint8_t reserved[4];
+};
+
+struct spdk_nvme_compute_engine_information_log {
+
+	struct spdk_nvme_supported_controller_memory_regions sup_ctrl_mem_regions;
+	uint8_t reserved[4];
+	struct spdk_nvme_supported_program_types sup_prg_types;
+	struct spdk_nvme_general_engine_characteristics characteristics;
+};
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_compute_engine_information_log) == 1168, "Incorrect size");
+
+//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+//----------------------------------------------------------------------
 
 /**
  * Asymmetric Namespace Acccess page (\ref SPDK_NVME_LOG_ASYMMETRIC_NAMESPACE_ACCESS)
