@@ -4915,6 +4915,43 @@ spdk_bdev_get_device_stat(struct spdk_bdev *bdev, struct spdk_bdev_io_stat *stat
 }
 
 int
+spdk_bdev_cs_get_log_page(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
+			  uint8_t lid, void *buf, size_t nbytes,
+			  spdk_bdev_io_completion_cb cb, void *cb_arg)
+{
+	struct spdk_bdev *bdev = spdk_bdev_desc_get_bdev(desc);
+	struct spdk_bdev_io *bdev_io;
+	struct spdk_bdev_channel *channel = spdk_io_channel_get_ctx(ch);
+
+	bdev_io = bdev_channel_get_io(channel);
+	if (!bdev_io) {
+		return -ENOMEM;
+	}
+
+	if (!bdev_io_type_supported(bdev, SPDK_BDEV_IO_TYPE_CS_GET_LOG_PAGE)) {
+		return -ENOTSUP;
+	}
+
+	bdev_io->internal.ch = channel;
+	bdev_io->internal.desc = desc;
+	bdev_io->type = SPDK_BDEV_IO_TYPE_CS_GET_LOG_PAGE;
+	bdev_io->u.bdev.iovs = &bdev_io->iov;
+	bdev_io->u.bdev.iovs[0].iov_base = buf;
+	bdev_io->u.bdev.iovs[0].iov_len = nbytes;
+	bdev_io->u.bdev.iovcnt = 1;
+	bdev_io->u.bdev.md_buf = NULL;
+	bdev_io->u.bdev.num_blocks = 0;
+	bdev_io->u.bdev.offset_blocks = 0;
+	bdev_io->u.bdev.cs.log_page.lid = lid;
+	bdev_io->u.bdev.cs.log_page.nbytes = nbytes;
+	bdev_io_init(bdev_io, bdev, cb_arg, cb);
+
+	bdev_io_submit(bdev_io);
+
+	return 0;	
+}
+
+int
 spdk_bdev_nvme_admin_passthru(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
 			      const struct spdk_nvme_cmd *cmd, void *buf, size_t nbytes,
 			      spdk_bdev_io_completion_cb cb, void *cb_arg)

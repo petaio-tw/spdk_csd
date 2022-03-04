@@ -40,6 +40,7 @@
 #include "spdk/likely.h"
 #include "spdk/string.h"
 #include "spdk/util.h"
+#include "spdk/nvme_spec.h"
 
 #define SPDK_WORK_BLOCK_SIZE		(4ULL * 1024ULL * 1024ULL)
 #define SPDK_WORK_ATS_BLOCK_SIZE	(1ULL * 1024ULL * 1024ULL)
@@ -1277,6 +1278,64 @@ _bytes_to_blocks(uint32_t block_size, uint64_t offset_bytes, uint64_t *offset_bl
 }
 
 static int
+bdev_scsi_cs_get_log_page(struct spdk_bdev *bdev, struct spdk_bdev_desc *bdev_desc,
+		    struct spdk_io_channel *bdev_ch, struct spdk_scsi_task *task,
+		    uint8_t lid, uint32_t payload_size)
+{
+	struct spdk_nvme_cmd *cmd;
+	uint32_t numd, numdl, numdu;
+	uint32_t lpol, lpou;
+	int rc;
+	int sk = SPDK_SCSI_SENSE_NO_SENSE, asc = SPDK_SCSI_ASC_NO_ADDITIONAL_SENSE;
+
+	if (payload_size == 0) {
+		return -EINVAL;
+	}
+
+	numd = spdk_nvme_bytes_to_numd(payload_size);
+	numdl = numd & 0xFFFFu;
+	numdu = (numd >> 16) & 0xFFFFu;
+
+	lpol = lpou = 0;
+
+	cmd = &task->nvme_cmd_buf;
+	memset(cmd, 0, sizeof(struct spdk_nvme_cmd));
+		
+	cmd->opc = SPDK_NVME_OPC_GET_LOG_PAGE;
+	cmd->nsid = SPDK_NVME_CS_NSID;
+
+	cmd->cdw10_bits.get_log_page.numdl = numdl;
+	cmd->cdw10_bits.get_log_page.lid = lid;
+
+	cmd->cdw11_bits.get_log_page.numdu = numdu;
+
+	cmd->cdw12 = lpol;
+	cmd->cdw13 = lpou;
+
+	assert((task->iovcnt == 1));
+	assert((task->iovs->iov_len == payload_size));
+	rc = spdk_bdev_nvme_admin_passthru(bdev_desc, bdev_ch, cmd, task->iovs->iov_base, 
+			payload_size, bdev_scsi_read_task_complete_cmd, task);
+
+	if (rc) {
+		if (rc == -ENOMEM) {
+			bdev_scsi_queue_io(task, bdev_scsi_process_block_resubmit, task);
+			return SPDK_SCSI_TASK_PENDING;
+		}
+		SPDK_ERRLOG("bdev_scsi_cs_get_log_page() failed\n");
+		goto check_condition;
+	}
+
+	task->data_transferred = task->length;
+	return SPDK_SCSI_TASK_PENDING;
+
+check_condition:
+	spdk_scsi_task_set_status(task, SPDK_SCSI_STATUS_CHECK_CONDITION, sk, asc,
+				  SPDK_SCSI_ASCQ_CAUSE_NOT_REPORTABLE);
+	return SPDK_SCSI_TASK_COMPLETE;
+}
+
+static int
 bdev_scsi_readwrite(struct spdk_bdev *bdev, struct spdk_bdev_desc *bdev_desc,
 		    struct spdk_io_channel *bdev_ch, struct spdk_scsi_task *task,
 		    uint64_t lba, uint32_t xfer_len, bool is_read)
@@ -1585,7 +1644,13 @@ bdev_scsi_process_block(struct spdk_scsi_task *task)
 		return bdev_scsi_readwrite(bdev, lun->bdev_desc, lun->io_channel,
 					   task, lba, xfer_len,
 					   cdb[0] == SPDK_SBC_READ_16);
-
+		
+	case SPDK_SBC_CS_GET_LOG_PAGE_10: {
+		uint8_t lid = from_be32(&cdb[2]);
+		xfer_len = from_be16(&cdb[7]);
+		return bdev_scsi_cs_get_log_page(bdev, lun->bdev_desc, lun->io_channel,
+						 task, lid, xfer_len);
+	}
 	case SPDK_SBC_READ_CAPACITY_10: {
 		uint64_t num_blocks = spdk_bdev_get_num_blocks(bdev);
 		uint8_t buffer[8];
@@ -1665,7 +1730,7 @@ bdev_scsi_process_block(struct spdk_scsi_task *task)
 
 	case SPDK_SBC_UNMAP:
 		return bdev_scsi_unmap(bdev, lun->bdev_desc, lun->io_channel, task, NULL);
-
+	
 	default:
 		return SPDK_SCSI_TASK_UNKNOWN;
 	}

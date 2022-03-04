@@ -707,9 +707,11 @@ enum spdk_nvme_cmd_fuse {
 
 //----------------------------------------------------------------------
 //[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
-typedef uint8_t spdk_nvme_program_type_t;
-#define SPDK_NVME_PRG_TYPE_DEVICE_DEFINED	0
-#define SPDK_NVME_PRG_TYPE_EBPF			1
+#define SPDK_NVME_CS_NSID			100
+
+typedef uint8_t spdk_nvme_prog_type_t;
+#define SPDK_NVME_PROG_TYPE_DEVICE_DEFINED	0
+#define SPDK_NVME_PROG_TYPE_EBPF		1
 
 // computational engine identifier
 typedef uint16_t spdk_nvme_ceid_t;
@@ -2347,7 +2349,7 @@ struct __attribute__((packed)) spdk_nvme_cs_ctrlr_capabilities_features {
 SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_cs_ctrlr_capabilities_features) == 32, "Incorrect size");
 
 struct spdk_nvme_cs_downloadable_prog_type_desc {
-	spdk_nvme_program_type_t prog_type;
+	spdk_nvme_prog_type_t prog_type;
 	uint8_t reserved[7];
 	uint64_t max_size_per_prog;
 	uint64_t max_size_all_prog;
@@ -2955,11 +2957,11 @@ enum spdk_nvme_log_page {
 	//----------------------------------------------------------------------
 	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
 
-	/** Program Information (mandatory) - \ref spdk_nvme_program_information_log */
+	/** Program Information (mandatory) - \ref spdk_nvme_prog_info_log */
 	SPDK_NVME_LOG_PROGRAM_INFORMATION		= 0x10,
-	/** Compute Engine Information (mandatory) - \ref spdk_nvme_compute_engine_information_log */
+	/** Compute Engine Information (mandatory) - \ref spdk_nvme_ce_info_log */
 	SPDK_NVME_LOG_COMPUTE_ENGINE_INFORMATION	= 0x11,
-	/** Compute Engine List (mandatory) - \ref spdk_nvme_compute_engine_identifiers_log */
+	/** Compute Engine List (mandatory) - \ref spdk_nvme_ce_list_log */
 	SPDK_NVME_LOG_COMPUTE_ENGINE_LIST		= 0x12,	
 
 	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
@@ -3265,15 +3267,15 @@ SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_firmware_page) == 512, "Incorrect siz
 // Program Unique ID (PUID)
 typedef union _spdk_nvme_puid {
 	uint64_t	val;
-	struct _field {
+	struct {
 		uint64_t	oui_36 	: 36;	// 36 bit Organizationally Unique Identifier
 		uint64_t	upi	: 28;	// Unique Program Identifier
 	} field;
 } spdk_nvme_puid;
 
-struct spdk_nvme_compute_engine_descriptor_data {
+struct spdk_nvme_ce_desc_data {
 
-	uint16_t compute_engine_identifier;
+	uint16_t ce_id;
 	struct {
 		uint8_t	activated		: 1;
 		uint8_t	reserved1		: 7;
@@ -3281,40 +3283,52 @@ struct spdk_nvme_compute_engine_descriptor_data {
 	uint8_t reserved0;
 };
 
-struct spdk_nvme_program_information_data {
+struct spdk_nvme_prog_info_data {
 
 	struct
 	{
-		uint8_t	program_entry_occupied		: 1;
-		uint8_t	program_entry_type_downloadable	: 1;
+		uint8_t	prog_ety_occupied		: 1;
+		uint8_t	prog_ety_type_downloadable	: 1;
 		uint8_t	reserved0			: 6;
-	} prg_ety;
+	} entry;
 
-	uint8_t number_of_associated_compute_engines;
+	uint8_t num_of_assoc_ces;
 	uint8_t reserved1[2];
-	struct spdk_nvme_compute_engine_descriptor_data associated_compute_engine_descriptor[MAX_COMPUTE_ENGINE_DESC];
-	spdk_nvme_program_type_t program_type;
+	struct spdk_nvme_ce_desc_data assoc_ce_desc[MAX_COMPUTE_ENGINE_DESC];
+	spdk_nvme_prog_type_t prog_type;
 	uint8_t reserved2[11];
-	uint8_t program_uuid[MAX_UUID_BYTE_SIZE];
+
+	union {
+		uint8_t puid_ary[MAX_UUID_BYTE_SIZE];
+		spdk_nvme_puid puid;
+	} id;
 };
-SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_program_information_data) == 64, "Incorrect size");
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_prog_info_data) == 64, "Incorrect size");
 
-struct spdk_nvme_program_information_log {
+struct spdk_nvme_prog_info_log {
 
-	uint32_t number_of_records;
+	uint32_t num_of_records;
 	uint8_t reserved[60];
-	struct spdk_nvme_program_information_data *program;
+	struct spdk_nvme_prog_info_data prog[0];
 };
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_prog_info_log) == 64, "Incorrect size");
+
+#define SPDK_NVME_GET_PROG_INFO_LOG_SIZE(num_ety)								\
+	(sizeof(struct spdk_nvme_prog_info_log) + ((num_ety) * sizeof(struct spdk_nvme_prog_info_data)))
 
 /**
  * Compute Engine List Log (\ref SPDK_NVME_LOG_COMPUTE_ENGINE_LIST)
  */
-struct spdk_nvme_compute_engine_identifiers_log {
+struct spdk_nvme_ce_list_log {
 
-	uint16_t number_of_compute_engines;
+	uint16_t num_of_ces;
 	uint8_t reserved[6];
-	spdk_nvme_ceid_t *compute_engine_identifier;
+	spdk_nvme_ceid_t ce_id[0];
 };
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_ce_list_log) == 8, "Incorrect size");
+
+#define SPDK_NVME_GET_CE_LIST_LOG_SIZE(num_ety)									\
+	(sizeof(struct spdk_nvme_ce_list_log) + ((num_ety) * sizeof(spdk_nvme_ceid_t)))
 
 /**
  * Compute Engine Information Log (\ref SPDK_NVME_LOG_COMPUTE_ENGINE_INFORMATION)
@@ -3322,40 +3336,40 @@ struct spdk_nvme_compute_engine_identifiers_log {
 #define MAX_MEMORY_REGION			(256) 
 #define MAX_PROGRAM_TYPE_IDENTIFIER		(128)
 
-struct spdk_nvme_memory_region_descriptor {
+struct spdk_nvme_mem_region_desc {
 	
-	spdk_nvme_mem_region_id_t memory_region_id;
+	spdk_nvme_mem_region_id_t mem_region_id;
 	uint16_t reserved;
 };
 
-struct spdk_nvme_supported_controller_memory_regions {
+struct spdk_nvme_supported_ctrlr_mem_regions {
 
-	uint8_t number_of_controller_memory_regions;
+	uint8_t num_of_ctrlr_mem_regions;
 	uint8_t reserved[3];
-	struct spdk_nvme_memory_region_descriptor memory_region[MAX_MEMORY_REGION];
+	struct spdk_nvme_mem_region_desc mem_region[MAX_MEMORY_REGION];
 };
 
-struct spdk_nvme_supported_program_types {
+struct spdk_nvme_supported_prog_types {
 
-	uint8_t number_of_supported_downloadable_program_types;
+	uint8_t num_of_supported_downloadable_prog_types;
 	uint8_t reserved;
-	spdk_nvme_program_type_t program_type_identifier[MAX_PROGRAM_TYPE_IDENTIFIER];
+	spdk_nvme_prog_type_t program_type_id[MAX_PROGRAM_TYPE_IDENTIFIER];
 };
 
 struct spdk_nvme_general_engine_characteristics {
 
-	uint16_t max_actived_prorgrams;
+	uint16_t max_actived_progs;
 	uint8_t reserved[4];
 };
 
-struct spdk_nvme_compute_engine_information_log {
+struct spdk_nvme_ce_info_log {
 
-	struct spdk_nvme_supported_controller_memory_regions sup_ctrl_mem_regions;
+	struct spdk_nvme_supported_ctrlr_mem_regions sup_ctrl_mem_regions;
 	uint8_t reserved[4];
-	struct spdk_nvme_supported_program_types sup_prg_types;
+	struct spdk_nvme_supported_prog_types sup_prg_types;
 	struct spdk_nvme_general_engine_characteristics characteristics;
 };
-SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_compute_engine_information_log) == 1168, "Incorrect size");
+SPDK_STATIC_ASSERT(sizeof(struct spdk_nvme_ce_info_log) == 1168, "Incorrect size");
 
 //[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
 //----------------------------------------------------------------------
@@ -3469,6 +3483,11 @@ enum spdk_nvme_csi {
 	SPDK_NVME_CSI_NVM	= 0x0,
 	SPDK_NVME_CSI_KV	= 0x1,
 	SPDK_NVME_CSI_ZNS	= 0x2,
+	//----------------------------------------------------------------------
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin	
+	SPDK_NVME_CSI_CS	= 0x3,
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+	//----------------------------------------------------------------------
 };
 
 enum spdk_nvme_secure_erase_setting {

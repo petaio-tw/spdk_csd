@@ -17,6 +17,7 @@
 /*                                                          */
 /************************************************************/
 #include "spdk/env.h"
+#include "spdk/nvme_spec.h"
 
 /************************************************************/
 /*                                                          */
@@ -38,7 +39,12 @@
 /* {DATA TYPE defines for other components reference.}      */
 /*                                                          */
 /************************************************************/
+
 struct cs_cse {
+	spdk_nvme_ceid_t nvme_ceid;			
+	int max_actived_prog;
+	int cur_actived_prog;
+
 	TAILQ_ENTRY(cs_cse) link;
 };
 

@@ -17,6 +17,7 @@
 /*                                                          */
 /************************************************************/
 #include "spdk/env.h"
+#include "cs_csx.h"
 
 /************************************************************/
 /*                                                          */
@@ -31,6 +32,7 @@
 /* {MACRO functions defines for other components reference.}*/
 /*                                                          */ 
 /************************************************************/
+#define NUM_PUID_MAP_ETY()	(sizeof(g_puid_map) / sizeof(puid_name_map_entry))
 
 /************************************************************/
 /*                                                          */
@@ -38,7 +40,10 @@
 /* {DATA TYPE defines for other components reference.}      */
 /*                                                          */
 /************************************************************/
-
+typedef struct _puid_name_map_entry {
+	spdk_nvme_puid	puid;
+	char		func_name[NAME_MAX];
+} puid_name_map_entry;
 
 /************************************************************/
 /*                                                          */ 
@@ -46,7 +51,12 @@
 /* {Function routine define for other components reference.}*/
 /*                                                          */
 /************************************************************/
-int cs_mgr_init(void);
+extern const puid_name_map_entry g_puid_map[];
 
+int cs_mgr_init(void);
+// valid after call cs_mgr_init() and it's success
+bool cs_mgr_is_init_done(void);
+struct cs_csx* cs_mgr_get_csx(char *name, struct cs_csx *cur_csx);
+char *cs_mgr_get_func_name(spdk_nvme_puid puid);
 /* End of CS_MGR_H */
 #endif

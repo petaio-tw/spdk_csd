@@ -631,6 +631,15 @@ struct spdk_bdev_io {
 				 */
 				void *bio_cb_arg;
 			} abort;
+
+			union {
+				struct {
+					/** Log Page Identifier */
+					uint8_t lid;
+					/* The number of bytes to transfer */
+					size_t nbytes;
+				} log_page;
+			} cs;
 		} bdev;
 		struct {
 			/** Channel reference held while messages for this reset are in progress. */

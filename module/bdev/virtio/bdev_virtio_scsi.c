@@ -69,6 +69,8 @@
 
 static int bdev_virtio_initialize(void);
 static void bdev_virtio_finish(void);
+static void
+bdev_virtio_cs_get_log(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_io);
 
 struct virtio_scsi_dev {
 	/* Generic virtio device data. */
@@ -526,6 +528,7 @@ bdev_virtio_send_io(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_io)
 	}
 
 	virtqueue_req_add_iovs(vq, &io_ctx->iov_req, 1, SPDK_VIRTIO_DESC_RO);
+#if 0
 	if (bdev_io->type == SPDK_BDEV_IO_TYPE_READ) {
 		virtqueue_req_add_iovs(vq, &io_ctx->iov_resp, 1, SPDK_VIRTIO_DESC_WR);
 		virtqueue_req_add_iovs(vq, bdev_io->u.bdev.iovs, bdev_io->u.bdev.iovcnt,
@@ -535,8 +538,35 @@ bdev_virtio_send_io(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_io)
 				       SPDK_VIRTIO_DESC_RO);
 		virtqueue_req_add_iovs(vq, &io_ctx->iov_resp, 1, SPDK_VIRTIO_DESC_WR);
 	}
+#else	
+	switch (bdev_io->type) {
+	case SPDK_BDEV_IO_TYPE_READ:
+	case SPDK_BDEV_IO_TYPE_CS_GET_LOG_PAGE:
+		virtqueue_req_add_iovs(vq, &io_ctx->iov_resp, 1, SPDK_VIRTIO_DESC_WR);
+		virtqueue_req_add_iovs(vq, bdev_io->u.bdev.iovs, bdev_io->u.bdev.iovcnt,
+				       SPDK_VIRTIO_DESC_WR);
+		break;
+	default:
+		virtqueue_req_add_iovs(vq, bdev_io->u.bdev.iovs, bdev_io->u.bdev.iovcnt,
+				       SPDK_VIRTIO_DESC_RO);
+		virtqueue_req_add_iovs(vq, &io_ctx->iov_resp, 1, SPDK_VIRTIO_DESC_WR);
+		break;
+	}
+#endif	
 
 	virtqueue_req_flush(vq);
+}
+
+static void
+bdev_virtio_cs_get_log(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_io)
+{
+	struct virtio_scsi_io_ctx *io_ctx = bdev_virtio_init_io_vreq(ch, bdev_io);
+	struct virtio_scsi_cmd_req *req = &io_ctx->req;
+
+	req->cdb[0] = SPDK_SBC_CS_GET_LOG_PAGE_10;
+	to_be32(&req->cdb[2], bdev_io->u.bdev.cs.log_page.lid);
+	to_be16(&req->cdb[7], bdev_io->u.bdev.cs.log_page.nbytes);
+	bdev_virtio_send_io(ch, bdev_io);
 }
 
 static void
@@ -639,7 +669,11 @@ bdev_virtio_get_buf_cb(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_io,
 		return;
 	}
 
-	bdev_virtio_rw(ch, bdev_io);
+	if (bdev_io->type == SPDK_BDEV_IO_TYPE_CS_GET_LOG_PAGE) {
+		bdev_virtio_cs_get_log(ch, bdev_io);
+	} else {
+		bdev_virtio_rw(ch, bdev_io);
+	}
 }
 
 static int _bdev_virtio_submit_request(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_io)
@@ -674,6 +708,10 @@ static int _bdev_virtio_submit_request(struct spdk_io_channel *ch, struct spdk_b
 		spdk_bdev_io_get_buf(bdev_io, bdev_virtio_unmap, buf_len);
 		return 0;
 	}
+	case SPDK_BDEV_IO_TYPE_CS_GET_LOG_PAGE:
+		spdk_bdev_io_get_buf(bdev_io, bdev_virtio_get_buf_cb,
+				     bdev_io->u.bdev.cs.log_page.nbytes);
+		return 0;	
 	case SPDK_BDEV_IO_TYPE_FLUSH:
 	default:
 		return -1;
@@ -698,6 +736,7 @@ bdev_virtio_io_type_supported(void *ctx, enum spdk_bdev_io_type io_type)
 	case SPDK_BDEV_IO_TYPE_WRITE:
 	case SPDK_BDEV_IO_TYPE_FLUSH:
 	case SPDK_BDEV_IO_TYPE_RESET:
+	case SPDK_BDEV_IO_TYPE_CS_GET_LOG_PAGE:
 		return true;
 
 	case SPDK_BDEV_IO_TYPE_UNMAP:

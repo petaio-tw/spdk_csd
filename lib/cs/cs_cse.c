@@ -59,6 +59,7 @@
 /**********************************************************/
 int cs_cse_init(struct cs_cse *cse)
 {
+	memset(cse, 0, sizeof(struct cs_cse));
 	return 0;
 }
 

@@ -16,6 +16,7 @@
 /**********************************************************/
 #include "spdk/env.h"
 #include "spdk/cs.h"
+#include "cs_mgr.h"
 
 /**********************************************************/
 /*                                                        */  
@@ -23,7 +24,8 @@
 /* {Constants define for LOCAL reference ONLY.}           */  
 /*                                                        */  
 /**********************************************************/
-
+#define MAX_NAME_LIST_BYTE_SIZE		1024
+#define MAX_PUID_LIST_ENTRIES		128
 /**********************************************************/
 /*                                                        */
 /* MACRO FUNCTION DECLARATIONS                            */
@@ -88,6 +90,75 @@ refer to a namespace and partition.
  */
 CS_STATUS csQueryFunctionList(char *Path, int *Length, char *Buffer)
 {
+	struct cs_csx *csx = cs_mgr_get_csx(Path, NULL);
+	char func_list[MAX_NAME_LIST_BYTE_SIZE];
+	spdk_nvme_puid puid_list[MAX_PUID_LIST_ENTRIES];
+	int puid_list_cnt = 0;
+
+	memset(func_list, 0, sizeof(func_list));
+
+	if (csx == NULL) {
+		return CS_DEVICE_NOT_PRESENT;
+	} else {
+		do {
+			for (uint32_t i = 0; i < csx->nvme_prog_info->num_of_records; i++) {
+				bool puid_in_list = false;
+				spdk_nvme_puid puid = csx->nvme_prog_info->prog[i].id.puid;
+
+				// check if puid of certain csx is in output list 
+				for (int puid_idx = 0;  puid_idx < puid_list_cnt; puid_idx++) {
+					if (puid_list[puid_idx].val == puid.val) {
+						puid_in_list = true;
+						break;
+					}
+				}
+
+				// add puid to list if it's new one
+				if (puid_in_list == false) {
+					assert(puid_list_cnt < MAX_PUID_LIST_ENTRIES);
+					puid_list[puid_list_cnt++] = puid;					
+				}
+			}
+
+			// get next csx
+			csx = cs_mgr_get_csx(Path, csx);
+		} while (csx != NULL);
+	}
+
+	// transfer puid list to func name list
+	for (int i = 0; i < puid_list_cnt; i++) {
+		char format_name[NAME_MAX] = {0};		
+		char *func_name = cs_mgr_get_func_name(puid_list[i]);
+
+		if (func_name == NULL) {
+			func_name = "UNKNOWN";
+		}
+
+		if (i == (puid_list_cnt - 1)) {
+			sprintf(format_name, "%s", func_name);
+		} else {
+			sprintf(format_name, "%s,", func_name);
+		}
+
+		assert((strlen(func_list) + strlen(format_name) + 1) <= MAX_NAME_LIST_BYTE_SIZE);
+		strcat(func_list, format_name);
+	}
+
+	// output buffer length or func list
+	int out_buf_size = (strlen(func_list) + 1);
+	if (Buffer == NULL) {
+		*Length = out_buf_size; 
+	} else {
+		int in_buf_size = *Length;
+
+		*Length = out_buf_size;
+		if (in_buf_size < out_buf_size) {			
+			return CS_INVALID_LENGTH;
+		}
+
+		memcpy(Buffer, func_list, out_buf_size);
+	}
+
 	return CS_SUCCESS;
 }
 
@@ -696,6 +767,15 @@ CS_STATUS csDeregisterPlugin(CsPluginRequest *Req)
 	return CS_SUCCESS;
 }
 
+/**
+ * @brief check if all csx init done
+ * 
+ * @return CS_STATUS 
+ */
+CS_STATUS csIsDevReady(void) 
+{
+	return (cs_mgr_is_init_done() == true) ? CS_SUCCESS : CS_DEVICE_NOT_READY;
+}
 /**********************************************************/
 /*                                                        */
 /* LOCAL SUBPROGRAM BODIES                                */

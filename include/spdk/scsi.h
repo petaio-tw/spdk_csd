@@ -45,6 +45,7 @@
 #include "spdk/queue.h"
 
 #include "spdk_internal/trace_defs.h"
+#include "spdk/nvme_spec.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -131,6 +132,12 @@ struct spdk_scsi_task {
 
 	uint8_t sense_data[32];
 	size_t sense_data_len;
+
+	/**
+	 * \internal
+	 * nvme cmd buffer
+	 */
+	struct spdk_nvme_cmd nvme_cmd_buf;
 
 	void *bdev_io;
 

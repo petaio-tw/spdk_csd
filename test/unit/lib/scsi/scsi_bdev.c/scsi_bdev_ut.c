@@ -227,6 +227,14 @@ _spdk_bdev_io_op(spdk_bdev_io_completion_cb cb, void *cb_arg)
 }
 
 int
+spdk_bdev_nvme_admin_passthru(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
+			      const struct spdk_nvme_cmd *cmd, void *buf, size_t nbytes,
+			      spdk_bdev_io_completion_cb cb, void *cb_arg)
+{
+	return _spdk_bdev_io_op(cb, cb_arg);
+}
+
+int
 spdk_bdev_readv_blocks(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
 		       struct iovec *iov, int iovcnt,
 		       uint64_t offset_blocks, uint64_t num_blocks,

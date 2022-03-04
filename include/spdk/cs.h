@@ -520,6 +520,8 @@ CS_STATUS csDeregisterNotify(char *DevName, csDevNotificationFn NotifyFn);
 //-----------------------------
 /**
  * @brief Allocates memory from the FDM for the requested size in bytes. 
+ * AFDM is allocated on a host page size granularity and is rounded off 
+ * for other values that are not in multiples of this size.
  * 
  * @param[in] DevHandle Handle to CSx
  * @param[in] Bytes Length in bytes of FDM to allocate
@@ -911,5 +913,12 @@ CS_STATUS csRegisterPlugin(CsPluginRequest *Req);
  * @return CS_STATUS 
  */
 CS_STATUS csDeregisterPlugin(CsPluginRequest *Req);
+
+/**
+ * @brief check if all csx init done
+ * 
+ * @return CS_STATUS 
+ */
+CS_STATUS csIsDevReady(void);
 /* End of CS_H */
 #endif

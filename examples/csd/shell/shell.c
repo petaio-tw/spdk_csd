@@ -700,6 +700,7 @@ void cs_compute_req_complete_cb(void *ctx, CS_STATUS status) {
 static
 void* app_thread(void* data)
 {
+  while (csIsDevReady() != CS_SUCCESS);
   lsh_loop();
 
   return 0;
