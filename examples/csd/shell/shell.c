@@ -27,7 +27,7 @@
 
 //---------------------------------- spdk start
 // add define
-#define REQ_FUNC_NAME         "RGB2GRAY"
+#define REQ_FUNC_NAME         "rgb2gray"
 #define ALLOC_AFDM_SIZE_BYTES (2 * 1024 * 1024)
 #define QUEUE_DEPTH           (2)
 #define NUM_IN_IMG_FILES      (6)
@@ -193,7 +193,7 @@ static int lsh_rgb2gray(char **args)
   char *func_name = strtok(func_list, delim);
     
   while (func_name != NULL) {
-      printf("func:%s\n", func_name);
+      //printf("func:%s\n", func_name);
       if (strcmp(REQ_FUNC_NAME, func_name) == 0) {
         get_gunc = true;
         break;
@@ -402,9 +402,22 @@ __out:
 
     for (int io_type = IO_TYPE_IN; io_type < NUM_IO_TYPE; io_type++) {
       if (job->afdm_handle[io_type] != NULL) {
-        csFreeMem(job->afdm_handle[io_type]);
+        rc = csFreeMem(job->afdm_handle[io_type]);
+        if (rc != CS_SUCCESS) {
+          fprintf(stderr, "free mem fail\n");
+        }
       }
     }
+  }
+
+  rc = csCloseCSE(cse_handle);
+  if (rc != CS_SUCCESS) {
+    fprintf(stderr, "close CSE fail\n");
+  }
+
+  rc = csCloseCSx(dev_handle);
+  if (rc != CS_SUCCESS) {
+    fprintf(stderr, "close CSx fail\n");
   }
 
   return 1;

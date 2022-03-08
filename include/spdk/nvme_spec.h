@@ -3287,7 +3287,12 @@ struct spdk_nvme_prog_info_data {
 
 	struct
 	{
+		// 0: Entry does not contain a program
+		// 1: Entry contains a program
 		uint8_t	prog_ety_occupied		: 1;
+		// 0: Entry contains a device-defined program provided by the controller. 
+		//    Entries containing device-defined programs shall not be overwritten.
+		// 1: Entry may contain downloadable programs
 		uint8_t	prog_ety_type_downloadable	: 1;
 		uint8_t	reserved0			: 6;
 	} entry;

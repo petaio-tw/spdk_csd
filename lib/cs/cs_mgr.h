@@ -58,5 +58,6 @@ int cs_mgr_init(void);
 bool cs_mgr_is_init_done(void);
 struct cs_csx* cs_mgr_get_csx(char *name, struct cs_csx *cur_csx);
 char *cs_mgr_get_func_name(spdk_nvme_puid puid);
+bool cs_mgr_get_puid(char *func_name, spdk_nvme_puid *puid);
 /* End of CS_MGR_H */
 #endif

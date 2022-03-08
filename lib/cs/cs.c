@@ -16,6 +16,7 @@
 /**********************************************************/
 #include "spdk/env.h"
 #include "spdk/cs.h"
+#include "spdk/crc32.h"
 #include "cs_mgr.h"
 
 /**********************************************************/
@@ -26,6 +27,10 @@
 /**********************************************************/
 #define MAX_NAME_LIST_BYTE_SIZE		1024
 #define MAX_PUID_LIST_ENTRIES		128
+#define MAX_CSE_LIST_ENTRIES		128
+
+#define CS_CRC32C_INITIAL		0xffffffffUL
+#define CS_CRC32C_XOR			0xffffffffUL
 /**********************************************************/
 /*                                                        */
 /* MACRO FUNCTION DECLARATIONS                            */
@@ -46,7 +51,19 @@
 /* {Function routines define for LOCAL reference ONLY.}   */
 /*                                                        */
 /**********************************************************/
-
+/**
+ * @brief get list content and it's length
+ * 
+ * 1. valid Buffer pointer
+ *  1.1 Length is sufficient
+ *   -- updated buffer with content, Length updated to actual length
+ *  1.2 Length is not sufficient
+ *   -- Length will be populated with the required size and an error status will be returned
+ * 2. NULL Buffer pointer
+ *   -- required buffer size is returned back in Length
+ *
+ */
+CS_STATUS cs_output_ctxt_and_len(void *dst_buf, unsigned int *buf_len, void *src);
 /**********************************************************/
 /*                                                        */
 /* STATIC VARIABLE DECLARATIONS                           */
@@ -75,7 +92,89 @@
  */
 CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer)
 {
-	return CS_SUCCESS;
+	struct cs_csx *csx = cs_mgr_get_csx(NULL, NULL);
+	struct cs_cse* cse_list[MAX_CSE_LIST_ENTRIES];
+	int cse_list_cnt = 0;
+	char cse_name_list[MAX_NAME_LIST_BYTE_SIZE];
+
+	if (csx == NULL) {
+		*Length = 0;
+		return CS_DEVICE_NOT_PRESENT;
+	}
+
+	if (FunctionName == NULL) {
+		// output all CSEs for opened CSx
+		do {
+			if (csx->num_csx_ctxt > 0) {
+				struct cs_cse *cse;
+				TAILQ_FOREACH(cse, &csx->cse_list, link) {
+					cse_list[cse_list_cnt++] = cse;
+				}
+			}
+
+			// get next csx
+			csx = cs_mgr_get_csx(NULL, csx);
+		} while (csx != NULL);
+
+	} else {
+		// output all CSEs that support desired func for opened CSx
+		spdk_nvme_puid req_puid;
+		if (cs_mgr_get_puid(FunctionName, &req_puid) == false) {
+			return CS_INVALID_FUNCTION_NAME;
+		}
+
+		// get all CSE that support request puid of opened CSx
+		do {
+			if (csx->num_csx_ctxt > 0) {
+				for (uint32_t i = 0; i < csx->nvme_prog_info->num_of_records; i++) {
+					struct spdk_nvme_prog_info_data *prog = &csx->nvme_prog_info->prog[i];
+
+					// get request function
+					if (req_puid.val == prog->id.puid.val) {
+
+						// get cse support request function
+						for (uint32_t j = 0; j < prog->num_of_assoc_ces; j++) {
+							struct spdk_nvme_ce_desc_data *ce_desc = &prog->assoc_ce_desc[j];
+
+							struct cs_cse *cse;
+							TAILQ_FOREACH(cse, &csx->cse_list, link) {
+								if (cse->nvme_ceid == ce_desc->ce_id) {
+									cse_list[cse_list_cnt++] = cse;
+									break;
+								}								
+							}
+						}
+					}
+				}
+			}
+
+			// get next csx
+			csx = cs_mgr_get_csx(NULL, csx);
+		} while (csx != NULL);		
+	}
+
+	if (cse_list_cnt <= 0) {
+		*Length = 0;
+		return CS_ENTITY_NOT_ON_DEVICE;
+	}
+
+	// transfer cse list to cse name list
+	memset(cse_name_list, 0, sizeof(cse_name_list));
+	for (int i = 0; i < cse_list_cnt; i++) {
+		// plus one to make sure size of format_name is bigger than cse_list[i]->name
+		char format_name[NAME_MAX+1] = {0};		
+
+		if (i == (cse_list_cnt - 1)) {
+			sprintf(format_name, "%s", cse_list[i]->name);
+		} else {
+			sprintf(format_name, "%s,", cse_list[i]->name);
+		}
+
+		assert((strlen(cse_name_list) + strlen(format_name) + 1) <= MAX_NAME_LIST_BYTE_SIZE);
+		strcat(cse_name_list, format_name);
+	}
+
+	return cs_output_ctxt_and_len(Buffer, Length, cse_name_list);
 }
 
 /**
@@ -91,41 +190,47 @@ refer to a namespace and partition.
 CS_STATUS csQueryFunctionList(char *Path, int *Length, char *Buffer)
 {
 	struct cs_csx *csx = cs_mgr_get_csx(Path, NULL);
-	char func_list[MAX_NAME_LIST_BYTE_SIZE];
 	spdk_nvme_puid puid_list[MAX_PUID_LIST_ENTRIES];
 	int puid_list_cnt = 0;
-
-	memset(func_list, 0, sizeof(func_list));
+	char func_name_list[MAX_NAME_LIST_BYTE_SIZE];
 
 	if (csx == NULL) {
+		*Length = 0;
 		return CS_DEVICE_NOT_PRESENT;
-	} else {
-		do {
-			for (uint32_t i = 0; i < csx->nvme_prog_info->num_of_records; i++) {
-				bool puid_in_list = false;
-				spdk_nvme_puid puid = csx->nvme_prog_info->prog[i].id.puid;
+	}  
 
-				// check if puid of certain csx is in output list 
-				for (int puid_idx = 0;  puid_idx < puid_list_cnt; puid_idx++) {
-					if (puid_list[puid_idx].val == puid.val) {
-						puid_in_list = true;
-						break;
-					}
-				}
+	// collect support puid list
+	do {
+		for (uint32_t i = 0; i < csx->nvme_prog_info->num_of_records; i++) {
+			bool puid_in_list = false;
+			spdk_nvme_puid puid = csx->nvme_prog_info->prog[i].id.puid;
 
-				// add puid to list if it's new one
-				if (puid_in_list == false) {
-					assert(puid_list_cnt < MAX_PUID_LIST_ENTRIES);
-					puid_list[puid_list_cnt++] = puid;					
+			// check if puid of certain csx is in output list 
+			for (int puid_idx = 0; puid_idx < puid_list_cnt; puid_idx++) {
+				if (puid_list[puid_idx].val == puid.val) {
+					puid_in_list = true;
+					break;
 				}
 			}
 
-			// get next csx
-			csx = cs_mgr_get_csx(Path, csx);
-		} while (csx != NULL);
+			// add puid to list if it's new one
+			if (puid_in_list == false) {
+				assert(puid_list_cnt < MAX_PUID_LIST_ENTRIES);
+				puid_list[puid_list_cnt++] = puid;					
+			}
+		}
+
+		// get next csx
+		csx = cs_mgr_get_csx(Path, csx);
+	} while (csx != NULL);
+
+	if (puid_list_cnt == 0) {
+		*Length = 0;
+		return CS_ENTITY_NOT_ON_DEVICE;		
 	}
 
 	// transfer puid list to func name list
+	memset(func_name_list, 0, sizeof(func_name_list));	
 	for (int i = 0; i < puid_list_cnt; i++) {
 		char format_name[NAME_MAX] = {0};		
 		char *func_name = cs_mgr_get_func_name(puid_list[i]);
@@ -140,26 +245,11 @@ CS_STATUS csQueryFunctionList(char *Path, int *Length, char *Buffer)
 			sprintf(format_name, "%s,", func_name);
 		}
 
-		assert((strlen(func_list) + strlen(format_name) + 1) <= MAX_NAME_LIST_BYTE_SIZE);
-		strcat(func_list, format_name);
+		assert((strlen(func_name_list) + strlen(format_name) + 1) <= MAX_NAME_LIST_BYTE_SIZE);
+		strcat(func_name_list, format_name);
 	}
 
-	// output buffer length or func list
-	int out_buf_size = (strlen(func_list) + 1);
-	if (Buffer == NULL) {
-		*Length = out_buf_size; 
-	} else {
-		int in_buf_size = *Length;
-
-		*Length = out_buf_size;
-		if (in_buf_size < out_buf_size) {			
-			return CS_INVALID_LENGTH;
-		}
-
-		memcpy(Buffer, func_list, out_buf_size);
-	}
-
-	return CS_SUCCESS;
+	return cs_output_ctxt_and_len(Buffer, Length, func_name_list);
 }
 
 /**
@@ -173,7 +263,32 @@ on a device or a device path. The file/directory may indirectly refer to a names
  */
 CS_STATUS csGetCSxFromPath(char *Path, unsigned int *Length, char *DevName)
 {
-	return CS_SUCCESS;
+	struct cs_csx *csx = cs_mgr_get_csx(Path, NULL);
+	char csx_name_list[MAX_NAME_LIST_BYTE_SIZE];
+
+	if (csx == NULL) {
+		*Length = 0;
+		return CS_DEVICE_NOT_PRESENT;
+	} 
+
+	memset(csx_name_list, 0, sizeof(csx_name_list));
+	do {
+		char format_name[NAME_MAX] = {0};
+
+		// check if next CSx exist
+		if (cs_mgr_get_csx(Path, csx) != NULL) {
+			sprintf(format_name, "%s,", spdk_bdev_get_name(csx->bdev));
+		} else {
+			sprintf(format_name, "%s", spdk_bdev_get_name(csx->bdev));
+		}
+		assert((strlen(csx_name_list) + strlen(format_name) + 1) <= MAX_NAME_LIST_BYTE_SIZE);
+		strcat(csx_name_list, format_name);
+
+		// get next csx
+		csx = cs_mgr_get_csx(Path, csx);
+	} while (csx != NULL);
+
+	return cs_output_ctxt_and_len(DevName, Length, csx_name_list);
 }
 
 /**
@@ -186,7 +301,7 @@ CS_STATUS csGetCSxFromPath(char *Path, unsigned int *Length, char *DevName)
  */
 CS_STATUS csGetCSEFromCSx(CS_DEV_HANDLE DevHandle, unsigned int *Length, char *CSEName)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -203,6 +318,33 @@ future notifications
  */
 CS_STATUS csOpenCSx(char *DevName, void *DevContext, CS_DEV_HANDLE *DevHandle)
 {
+	struct cs_csx *csx = NULL;
+
+	if ((DevName == NULL) || (DevHandle == NULL)) {
+		return CS_INVALID_ARG;
+	}
+
+	csx = cs_mgr_get_csx(DevName, NULL);
+	if (csx == NULL) {
+		return CS_DEVICE_NOT_PRESENT;
+	} 
+	
+	struct cs_csx_ctxt *csx_ctx;
+	csx_ctx = calloc(1, sizeof(struct cs_csx_ctxt));
+	if (csx_ctx == NULL) {
+		return CS_NOT_ENOUGH_MEMORY;
+	}
+
+	csx_ctx->csx = csx;
+	csx_ctx->csx_usr_ctxt = DevContext;
+	csx_ctx->checksum = 
+		spdk_crc32c_update(csx_ctx, offsetof(struct cs_csx_ctxt, checksum), CS_CRC32C_INITIAL);
+
+	TAILQ_INSERT_TAIL(&csx->csx_ctxt_list, csx_ctx, link);
+	csx->num_csx_ctxt++;
+	
+	*DevHandle = (CS_DEV_HANDLE)csx_ctx;
+
 	return CS_SUCCESS;
 }
 
@@ -214,7 +356,26 @@ CS_STATUS csOpenCSx(char *DevName, void *DevContext, CS_DEV_HANDLE *DevHandle)
  */
 CS_STATUS csCloseCSx(CS_DEV_HANDLE DevHandle)
 {
-	return CS_SUCCESS;
+	struct cs_csx_ctxt *src_csx_ctx = (struct cs_csx_ctxt *)DevHandle;
+
+	if (src_csx_ctx->checksum != spdk_crc32c_update(src_csx_ctx, offsetof(struct cs_csx_ctxt, checksum), CS_CRC32C_INITIAL)) {
+		return CS_INVALID_ARG;
+	}
+
+	struct cs_csx *csx = src_csx_ctx->csx;
+	struct cs_csx_ctxt *csx_ctx = NULL;
+	TAILQ_FOREACH(csx_ctx, &csx->csx_ctxt_list, link) {
+		if (src_csx_ctx == csx_ctx) {
+			assert(csx->num_csx_ctxt > 0);
+			TAILQ_REMOVE(&csx->csx_ctxt_list, csx_ctx, link);
+			csx->num_csx_ctxt--;
+
+			free(csx_ctx);
+			return CS_SUCCESS;	
+		}
+	}
+
+	return CS_INVALID_ARG;
 }
 
 /**
@@ -228,7 +389,51 @@ future notifications
  */
 CS_STATUS csOpenCSE(char *CSEName, void *CSEContext, CS_CSE_HANDLE *CSEHandle) 
 {
-	return CS_SUCCESS;
+	const char* delim = "_"; 
+	char *csx_name = NULL;
+	struct cs_csx *csx = NULL;
+	struct cs_cse *cse = NULL;
+
+	if ((CSEName == NULL) || (CSEHandle == NULL)) {
+		return CS_INVALID_ARG;
+	}
+
+	csx_name = strdup(CSEName);
+	csx_name = strtok(csx_name, delim);
+	if (csx_name == NULL) {
+		return CS_INVALID_ARG;
+	}
+
+	// get CSx by name from CSE
+	csx = cs_mgr_get_csx(csx_name, NULL);
+	if (csx == NULL) {
+		return CS_DEVICE_NOT_PRESENT;
+	}
+
+	// get CSE associated with specific CSx by name
+	TAILQ_FOREACH(cse, &csx->cse_list, link) {
+		if (strcmp(cse->name, CSEName) == 0) {
+			struct cs_cse_ctxt *cse_ctx;
+			cse_ctx = calloc(1, sizeof(struct cs_cse_ctxt));
+			if (cse_ctx == NULL) {
+				return CS_NOT_ENOUGH_MEMORY;
+			}
+
+			cse_ctx->cse = cse;
+			cse_ctx->cse_usr_ctxt = CSEContext;
+			cse_ctx->checksum = 
+				spdk_crc32c_update(cse_ctx, offsetof(struct cs_cse_ctxt, checksum), CS_CRC32C_INITIAL);
+
+			TAILQ_INSERT_TAIL(&cse->cse_ctxt_list, cse_ctx, link);
+			cse->num_cse_ctxt++;
+			
+			*CSEHandle = (CS_CSE_HANDLE)cse_ctx;
+
+			return CS_SUCCESS;			
+		}
+	}
+
+	return CS_DEVICE_NOT_PRESENT;
 }
 
 /**
@@ -239,7 +444,26 @@ CS_STATUS csOpenCSE(char *CSEName, void *CSEContext, CS_CSE_HANDLE *CSEHandle)
  */
 CS_STATUS csCloseCSE(CS_CSE_HANDLE CSEHandle)
 {
-	return CS_SUCCESS;
+	struct cs_cse_ctxt *src_cse_ctx = (struct cs_cse_ctxt *)CSEHandle;
+
+	if (src_cse_ctx->checksum != spdk_crc32c_update(src_cse_ctx, offsetof(struct cs_cse_ctxt, checksum), CS_CRC32C_INITIAL)) {
+		return CS_INVALID_ARG;
+	}
+
+	struct cs_cse *cse = src_cse_ctx->cse;
+	struct cs_cse_ctxt *cse_ctx = NULL;
+	TAILQ_FOREACH(cse_ctx, &cse->cse_ctxt_list, link) {
+		if (src_cse_ctx == cse_ctx) {
+			assert(cse->num_cse_ctxt > 0);
+			TAILQ_REMOVE(&cse->cse_ctxt_list, cse_ctx, link);
+			cse->num_cse_ctxt--;
+			free(cse_ctx);
+
+			return CS_SUCCESS;
+		}
+	}
+
+	return CS_INVALID_ARG;
 }
 
 /**
@@ -254,7 +478,7 @@ notifications for. If NULL, all CSEs and CSxes will be registered
  */
 CS_STATUS csRegisterNotify(char *DevName, u32 NotifyOptions, csDevNotificationFn NotifyFn)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -269,7 +493,7 @@ notifications from. If NULL, all CSEs and CSxes will be deregistered
  */
 CS_STATUS csDeregisterNotify(char *DevName, csDevNotificationFn NotifyFn)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -290,7 +514,7 @@ memory is not required to be mapped
 CS_STATUS csAllocMem(CS_DEV_HANDLE DevHandle, int Bytes, unsigned int MemFlags, 
 		     CS_MEM_HANDLE *MemHandle, CS_MEM_PTR *VAddressPtr)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -301,7 +525,7 @@ CS_STATUS csAllocMem(CS_DEV_HANDLE DevHandle, int Bytes, unsigned int MemFlags,
  */
 CS_STATUS csFreeMem(CS_MEM_HANDLE MemHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -324,7 +548,7 @@ This may be optional depending on the implementation.
 CS_STATUS csQueueStorageRequest(CsStorageRequest *Req, void *Context, csQueueCallbackFn CallbackFn,
 				CS_EVT_HANDLE EventHandle, u32 *CompValue)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 //-----------------------------
 // CSE Data movement
@@ -347,7 +571,7 @@ This may be optional depending on the implementation.
 CS_STATUS csQueueCopyMemRequest(CsCopyMemRequest *CopyReq, void *Context, csQueueCallbackFn CallbackFn,
 			  	CS_EVT_HANDLE EventHandle, u32 *CompValue)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -364,7 +588,7 @@ CS_STATUS csQueueCopyMemRequest(CsCopyMemRequest *CopyReq, void *Context, csQueu
  */
 CS_STATUS csGetFunction(CS_CSE_HANDLE CSEHandle, char *FunctionName, void *Context, CS_FUNCTION_ID *FunctionId)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -375,7 +599,7 @@ CS_STATUS csGetFunction(CS_CSE_HANDLE CSEHandle, char *FunctionName, void *Conte
  */
 CS_STATUS csStopFunction(CS_FUNCTION_ID FunctionId)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -398,7 +622,7 @@ This may be optional depending on the implementation.
 CS_STATUS csQueueComputeRequest(CsComputeRequest *Req, void *Context, csQueueCallbackFn CallbackFn,
 			        CS_EVT_HANDLE EventHandle, u32 *CompValue)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -428,7 +652,7 @@ this batch resource. This parameter provides a hint to the sub-system for resour
  */
 CS_STATUS csAllocBatchRequest(CS_BATCH_MODE Mode, int MaxReqs, CS_BATCH_HANDLE *BatchHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -439,7 +663,7 @@ CS_STATUS csAllocBatchRequest(CS_BATCH_MODE Mode, int MaxReqs, CS_BATCH_HANDLE *
  */
 CS_STATUS csFreeBatchRequest(CS_BATCH_HANDLE BatchHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -469,7 +693,7 @@ current request of successful.
 CS_STATUS csAddBatchEntry(CS_BATCH_HANDLE BatchHandle, CsBatchRequest *Req, CS_BATCH_INDEX Before, 
 			  CS_BATCH_INDEX After, CS_BATCH_INDEX *Curr)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -482,7 +706,7 @@ CS_STATUS csAddBatchEntry(CS_BATCH_HANDLE BatchHandle, CsBatchRequest *Req, CS_B
  */
 CS_STATUS csHelperReconfigureBatchEntry(CS_BATCH_HANDLE BatchHandle, CS_BATCH_INDEX Entry, CsBatchRequest *Req)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -496,7 +720,7 @@ resource is resized to. The parameter may not exceed the maximum supported by th
  */
 CS_STATUS csHelperResizeBatchRequest(CS_BATCH_HANDLE BatchHandle, int MaxReqs)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -520,7 +744,7 @@ This may be optional depending on the implementation.
 CS_STATUS csQueueBatchRequest(CS_BATCH_HANDLE BatchHandle, void *Context, csQueueCallbackFn CallbackFn,
 			      CS_EVT_HANDLE EventHandle, u32 *CompValue)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -534,7 +758,7 @@ CS_STATUS csQueueBatchRequest(CS_BATCH_HANDLE BatchHandle, void *Context, csQueu
  */
 CS_STATUS csCreateEvent(CS_EVT_HANDLE *EventHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -545,7 +769,7 @@ CS_STATUS csCreateEvent(CS_EVT_HANDLE *EventHandle)
  */
 CS_STATUS csDeleteEvent(CS_EVT_HANDLE EventHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -559,7 +783,7 @@ CS_STATUS csDeleteEvent(CS_EVT_HANDLE EventHandle)
  */
 CS_STATUS csPollEvent(CS_EVT_HANDLE EventHandle, void *Context)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -577,7 +801,7 @@ resident in the CSE.
  */
 CS_STATUS csQueryDeviceForComputeList(CS_DEV_HANDLE DevHandle, int *Size, CsFunctionInfo *FunctionInfo)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -590,7 +814,7 @@ CS_STATUS csQueryDeviceForComputeList(CS_DEV_HANDLE DevHandle, int *Size, CsFunc
  */
 CS_STATUS csQueryDeviceProperties(CS_DEV_HANDLE DevHandle, int *Length, CSxProperties *Buffer)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -603,7 +827,7 @@ related functions that are built-in.
  */
 CS_STATUS csQueryDeviceCapabilities(CS_DEV_HANDLE DevHandle, CsCapabilities *Caps)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -619,7 +843,7 @@ requested type inputs. Details on CSFs and the CSx may be queried. This is a pri
  */
 CS_STATUS csQueryDeviceStatistics(CS_DEV_HANDLE DevHandle, CS_STAT_TYPE Type, void *Identifier, CsStatsInfo *Stats)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -633,7 +857,7 @@ the requested type. This is a privileged function.
  */
 CS_STATUS csSetDeviceCapability(CS_DEV_HANDLE DevHandle, CS_CAP_TYPE Type, CsCapabilityInfo *Details)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -647,7 +871,7 @@ how the downloaded code is secured. This is a privileged function.
  */
 CS_STATUS csDownload(CS_DEV_HANDLE DevHandle, CsDownloadInfo *ProgramInfo)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -661,7 +885,7 @@ configuration is secured. This is a privileged function.
  */
 CS_STATUS csConfig(CS_CSE_HANDLE CSEHandle, CsConfigInfo *Info)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -673,7 +897,7 @@ This is a privileged function.
  */
 CS_STATUS csAbortCSE(CS_CSE_HANDLE CSEHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -684,7 +908,7 @@ CS_STATUS csAbortCSE(CS_CSE_HANDLE CSEHandle)
  */
 CS_STATUS csResetCSE(CS_CSE_HANDLE CSEHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -702,7 +926,7 @@ reserved or not in use.
  */
 CS_STATUS csAllocStream(CS_DEV_HANDLE DevHandle, CS_ALOC_STREAM_TYPE Type, CS_STREAM_HANDLE *StreamHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -713,7 +937,7 @@ CS_STATUS csAllocStream(CS_DEV_HANDLE DevHandle, CS_ALOC_STREAM_TYPE Type, CS_ST
  */
 CS_STATUS csFreeStream(CS_STREAM_HANDLE StreamHandle)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 //-----------------------------
@@ -730,7 +954,7 @@ is able to use this query.
  */
 CS_STATUS csQueryLibrarySupport(CS_LIBRARY_SUPPORT Type, int *Length, char *Buffer)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -742,7 +966,7 @@ CS_STATUS csQueryLibrarySupport(CS_LIBRARY_SUPPORT Type, int *Length, char *Buff
  */
 CS_STATUS csQueryPlugin(CsQueryPluginRequest *Req, csQueryPluginCallbackFn CallbackFn)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -753,7 +977,7 @@ CS_STATUS csQueryPlugin(CsQueryPluginRequest *Req, csQueryPluginCallbackFn Callb
  */
 CS_STATUS csRegisterPlugin(CsPluginRequest *Req)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -764,7 +988,7 @@ CS_STATUS csRegisterPlugin(CsPluginRequest *Req)
  */
 CS_STATUS csDeregisterPlugin(CsPluginRequest *Req)
 {
-	return CS_SUCCESS;
+	return CS_UNSUPPORTED;
 }
 
 /**
@@ -783,4 +1007,27 @@ CS_STATUS csIsDevReady(void)
 /*                                                        */
 /**********************************************************/
 
+CS_STATUS cs_output_ctxt_and_len(void *dst_buf, unsigned int *buf_len, void *src)
+{
+	int out_buf_size = (strlen(src) + 1);
+
+	if (buf_len == NULL) {
+		return CS_INVALID_ARG;
+	}
+
+	if (dst_buf == NULL) {
+		*buf_len = out_buf_size; 
+	} else {
+		int in_buf_size = *buf_len;
+
+		*buf_len = out_buf_size;
+		if (in_buf_size < out_buf_size) {			
+			return CS_INVALID_LENGTH;
+		}
+
+		memcpy(dst_buf, src, out_buf_size);
+	}
+
+	return CS_SUCCESS;
+}
 /* End of CS_C */

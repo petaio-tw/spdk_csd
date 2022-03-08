@@ -1430,6 +1430,9 @@ virtio_scsi_dev_add_tgt(struct virtio_scsi_dev *svdev, struct virtio_scsi_scan_i
 	}
 
 	TAILQ_INSERT_TAIL(&svdev->luns, disk, link);
+
+	spdk_bdev_alias_add(bdev, svdev->vdev.tr_addr);
+
 	return 0;
 }
 

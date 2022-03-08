@@ -170,6 +170,20 @@ char *cs_mgr_get_func_name(spdk_nvme_puid puid)
 
 	return NULL;
 }
+
+bool cs_mgr_get_puid(char *func_name, spdk_nvme_puid *puid)
+{
+	uint32_t i;
+
+	for (i = 0; i < NUM_PUID_MAP_ETY(); i++) {
+		if (strcmp(func_name, g_puid_map[i].func_name) == 0) {
+			*puid = g_puid_map[i].puid;
+			return true;
+		}
+	}
+
+	return false;
+}
 /**********************************************************/
 /*                                                        */
 /* LOCAL SUBPROGRAM BODIES                                */

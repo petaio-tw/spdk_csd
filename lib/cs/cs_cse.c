@@ -57,11 +57,6 @@
 /* {C code body of each EXPORTED function routine.}       */
 /*                                                        */
 /**********************************************************/
-int cs_cse_init(struct cs_cse *cse)
-{
-	memset(cse, 0, sizeof(struct cs_cse));
-	return 0;
-}
 
 
 /**********************************************************/

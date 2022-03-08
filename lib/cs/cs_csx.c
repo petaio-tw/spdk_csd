@@ -92,6 +92,7 @@ int cs_csx_init(struct cs_csx *csx, struct spdk_bdev *bdev, cs_csx_init_cplt_cb 
 	
 	csx->state = CSX_STATE_INIT_START;
 	TAILQ_INIT(&csx->cse_list);
+	TAILQ_INIT(&csx->csx_ctxt_list);
 	csx->bdev = bdev;
 	csx->init_cplt_cb = cb;
 	csx->init_cplt_cb_arg = cb_arg;
@@ -308,10 +309,14 @@ void cs_csx_get_cse_list_cplt(struct spdk_bdev_io *bdev_io, bool success, void *
 		for (int i = 0; i < csx->num_cse; i++) {
 			struct cs_cse *cse = calloc(1, sizeof(struct cs_cse));
 
+			// init CSE
 			cse->nvme_ceid = ce_log->ce_id[i];
-			printf("%s:ceid_%d\n", spdk_bdev_get_name(csx->bdev), cse->nvme_ceid);
+			sprintf(cse->name, "%s_cse%d", spdk_bdev_get_name(csx->bdev), cse->nvme_ceid);
+			printf("%s\n", cse->name);
+			cse->csx = csx;
+			TAILQ_INIT(&cse->cse_ctxt_list);
 
-			cs_cse_init(cse);
+			// insert CSE to CSx list
 			TAILQ_INSERT_TAIL(&csx->cse_list, cse, link);			
 		}		
 		csx->state = CSX_STATE_GET_FUNC_CNT;
