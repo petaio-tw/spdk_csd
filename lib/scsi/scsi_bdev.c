@@ -1278,9 +1278,50 @@ _bytes_to_blocks(uint32_t block_size, uint64_t offset_bytes, uint64_t *offset_bl
 }
 
 static int
+bdev_scsi_cs_prog_act_mgmt(struct spdk_bdev *bdev, struct spdk_bdev_desc *bdev_desc,
+		    struct spdk_io_channel *bdev_ch, struct spdk_scsi_task *task,
+		    uint16_t pid, uint16_t ceid, bool activate)
+{
+	struct spdk_nvme_cmd *cmd;
+	int rc;
+	int sk = SPDK_SCSI_SENSE_NO_SENSE, asc = SPDK_SCSI_ASC_NO_ADDITIONAL_SENSE;
+
+	cmd = &task->nvme_cmd_buf;
+	memset(cmd, 0, sizeof(struct spdk_nvme_cmd));
+
+	cmd->opc = SPDK_NVME_OPC_PROGRAM_ACTIVATION_MANAGEMENT;
+	cmd->nsid = SPDK_NVME_CS_NSID;
+
+	cmd->cdw10_bits.prog_act_mgmt.pid = pid;
+	cmd->cdw10_bits.prog_act_mgmt.ceid = ceid;
+	cmd->cdw11_bits.prog_act_mgmt.activate = activate;
+
+	rc = spdk_bdev_nvme_admin_passthru(bdev_desc, bdev_ch, cmd, 
+					   NULL, 0,
+					   bdev_scsi_task_complete_cmd, task);
+				   
+	if (rc) {
+		if (rc == -ENOMEM) {
+			bdev_scsi_queue_io(task, bdev_scsi_process_block_resubmit, task);
+			return SPDK_SCSI_TASK_PENDING;
+		}
+		SPDK_ERRLOG("bdev_scsi_cs_prog_act_mgmt() failed\n");
+		goto check_condition;
+	}
+
+	task->data_transferred = task->length;
+	return SPDK_SCSI_TASK_PENDING;
+
+check_condition:
+	spdk_scsi_task_set_status(task, SPDK_SCSI_STATUS_CHECK_CONDITION, sk, asc,
+				  SPDK_SCSI_ASCQ_CAUSE_NOT_REPORTABLE);
+	return SPDK_SCSI_TASK_COMPLETE;			
+}
+
+static int
 bdev_scsi_cs_get_log_page(struct spdk_bdev *bdev, struct spdk_bdev_desc *bdev_desc,
 		    struct spdk_io_channel *bdev_ch, struct spdk_scsi_task *task,
-		    uint8_t lid, uint32_t payload_size)
+		    uint8_t lid, uint16_t lsid, uint32_t payload_size)
 {
 	struct spdk_nvme_cmd *cmd;
 	uint32_t numd, numdl, numdu;
@@ -1308,14 +1349,16 @@ bdev_scsi_cs_get_log_page(struct spdk_bdev *bdev, struct spdk_bdev_desc *bdev_de
 	cmd->cdw10_bits.get_log_page.lid = lid;
 
 	cmd->cdw11_bits.get_log_page.numdu = numdu;
+	cmd->cdw11_bits.get_log_page.lsid = lsid;
 
 	cmd->cdw12 = lpol;
 	cmd->cdw13 = lpou;
 
 	assert((task->iovcnt == 1));
 	assert((task->iovs->iov_len == payload_size));
-	rc = spdk_bdev_nvme_admin_passthru(bdev_desc, bdev_ch, cmd, task->iovs->iov_base, 
-			payload_size, bdev_scsi_read_task_complete_cmd, task);
+	rc = spdk_bdev_nvme_admin_passthru(bdev_desc, bdev_ch, cmd, 
+					   task->iovs->iov_base, payload_size, 
+					   bdev_scsi_read_task_complete_cmd, task);
 
 	if (rc) {
 		if (rc == -ENOMEM) {
@@ -1646,10 +1689,18 @@ bdev_scsi_process_block(struct spdk_scsi_task *task)
 					   cdb[0] == SPDK_SBC_READ_16);
 		
 	case SPDK_SBC_CS_GET_LOG_PAGE_10: {
-		uint8_t lid = from_be32(&cdb[2]);
-		xfer_len = from_be16(&cdb[7]);
+		uint8_t lid = from_be16(&cdb[2]);
+		uint16_t lsid = from_be16(&cdb[4]);
+		xfer_len = from_be32(&cdb[6]);
 		return bdev_scsi_cs_get_log_page(bdev, lun->bdev_desc, lun->io_channel,
-						 task, lid, xfer_len);
+						 task, lid, lsid, xfer_len);
+	}
+	case SPDK_SBC_CS_PROG_ACT_MGNT_10: {
+		uint16_t pid = from_be16(&cdb[2]);
+		uint16_t ceid = from_be16(&cdb[4]);
+		uint16_t activate = from_be16(&cdb[6]);		
+		return bdev_scsi_cs_prog_act_mgmt(bdev, lun->bdev_desc, lun->io_channel,
+						  task, pid, ceid, activate);
 	}
 	case SPDK_SBC_READ_CAPACITY_10: {
 		uint64_t num_blocks = spdk_bdev_get_num_blocks(bdev);

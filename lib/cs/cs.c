@@ -17,7 +17,9 @@
 #include "spdk/env.h"
 #include "spdk/cs.h"
 #include "spdk/crc32.h"
+#include "spdk/log.h"
 #include "cs_mgr.h"
+#include "cs_csx.h"
 
 /**********************************************************/
 /*                                                        */  
@@ -63,7 +65,11 @@
  *   -- required buffer size is returned back in Length
  *
  */
-CS_STATUS cs_output_ctxt_and_len(void *dst_buf, unsigned int *buf_len, void *src);
+static
+CS_STATUS csOutputCtxAndLen(void *dst_buf, unsigned int *buf_len, void *src);
+
+static
+void csGetFunctionCompleteCb(void *ctx, bool success);
 /**********************************************************/
 /*                                                        */
 /* STATIC VARIABLE DECLARATIONS                           */
@@ -105,11 +111,10 @@ CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer)
 	if (FunctionName == NULL) {
 		// output all CSEs for opened CSx
 		do {
-			if (csx->num_csx_ctxt > 0) {
-				struct cs_cse *cse;
-				TAILQ_FOREACH(cse, &csx->cse_list, link) {
-					cse_list[cse_list_cnt++] = cse;
-				}
+			if (csx->num_csx_handle > 0) {
+				for (int i = 0; i < csx->num_cse; i++) {
+					cse_list[cse_list_cnt++] = &csx->cse_list[i];
+				}			
 			}
 
 			// get next csx
@@ -125,25 +130,19 @@ CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer)
 
 		// get all CSE that support request puid of opened CSx
 		do {
-			if (csx->num_csx_ctxt > 0) {
-				for (uint32_t i = 0; i < csx->nvme_prog_info->num_of_records; i++) {
-					struct spdk_nvme_prog_info_data *prog = &csx->nvme_prog_info->prog[i];
+			if (csx->num_csx_handle > 0) {
+
+				for (int i = 0; i < csx->num_func; i++) {
+					struct cs_func *func = &csx->func_list[i];
 
 					// get request function
-					if (req_puid.val == prog->id.puid.val) {
-
+					if (req_puid.val == func->puid.val) {
 						// get cse support request function
-						for (uint32_t j = 0; j < prog->num_of_assoc_ces; j++) {
-							struct spdk_nvme_ce_desc_data *ce_desc = &prog->assoc_ce_desc[j];
-
-							struct cs_cse *cse;
-							TAILQ_FOREACH(cse, &csx->cse_list, link) {
-								if (cse->nvme_ceid == ce_desc->ce_id) {
-									cse_list[cse_list_cnt++] = cse;
-									break;
-								}								
-							}
+						for (int j = 0; j < func->num_assoc_cse; j++) {
+							cse_list[cse_list_cnt++] = func->assoc_cse_list[j];
 						}
+						break;
+
 					}
 				}
 			}
@@ -174,7 +173,7 @@ CS_STATUS csQueryCSEList(char *FunctionName, int *Length, char *Buffer)
 		strcat(cse_name_list, format_name);
 	}
 
-	return cs_output_ctxt_and_len(Buffer, Length, cse_name_list);
+	return csOutputCtxAndLen(Buffer, Length, cse_name_list);
 }
 
 /**
@@ -249,7 +248,7 @@ CS_STATUS csQueryFunctionList(char *Path, int *Length, char *Buffer)
 		strcat(func_name_list, format_name);
 	}
 
-	return cs_output_ctxt_and_len(Buffer, Length, func_name_list);
+	return csOutputCtxAndLen(Buffer, Length, func_name_list);
 }
 
 /**
@@ -288,7 +287,7 @@ CS_STATUS csGetCSxFromPath(char *Path, unsigned int *Length, char *DevName)
 		csx = cs_mgr_get_csx(Path, csx);
 	} while (csx != NULL);
 
-	return cs_output_ctxt_and_len(DevName, Length, csx_name_list);
+	return csOutputCtxAndLen(DevName, Length, csx_name_list);
 }
 
 /**
@@ -329,21 +328,21 @@ CS_STATUS csOpenCSx(char *DevName, void *DevContext, CS_DEV_HANDLE *DevHandle)
 		return CS_DEVICE_NOT_PRESENT;
 	} 
 	
-	struct cs_csx_ctxt *csx_ctx;
-	csx_ctx = calloc(1, sizeof(struct cs_csx_ctxt));
-	if (csx_ctx == NULL) {
+	struct cs_csx_handle *csx_handle;
+	csx_handle = calloc(1, sizeof(struct cs_csx_handle));
+	if (csx_handle == NULL) {
 		return CS_NOT_ENOUGH_MEMORY;
 	}
 
-	csx_ctx->csx = csx;
-	csx_ctx->csx_usr_ctxt = DevContext;
-	csx_ctx->checksum = 
-		spdk_crc32c_update(csx_ctx, offsetof(struct cs_csx_ctxt, checksum), CS_CRC32C_INITIAL);
+	csx_handle->csx = csx;
+	csx_handle->csx_usr_ctx = DevContext;
+	csx_handle->checksum = 
+		spdk_crc32c_update(csx_handle, offsetof(struct cs_csx_handle, checksum), CS_CRC32C_INITIAL);
 
-	TAILQ_INSERT_TAIL(&csx->csx_ctxt_list, csx_ctx, link);
-	csx->num_csx_ctxt++;
+	TAILQ_INSERT_TAIL(&csx->csx_handle_list, csx_handle, link);
+	csx->num_csx_handle++;
 	
-	*DevHandle = (CS_DEV_HANDLE)csx_ctx;
+	*DevHandle = (CS_DEV_HANDLE)csx_handle;
 
 	return CS_SUCCESS;
 }
@@ -356,21 +355,21 @@ CS_STATUS csOpenCSx(char *DevName, void *DevContext, CS_DEV_HANDLE *DevHandle)
  */
 CS_STATUS csCloseCSx(CS_DEV_HANDLE DevHandle)
 {
-	struct cs_csx_ctxt *src_csx_ctx = (struct cs_csx_ctxt *)DevHandle;
+	struct cs_csx_handle *src_csx_handle = (struct cs_csx_handle *)DevHandle;
 
-	if (src_csx_ctx->checksum != spdk_crc32c_update(src_csx_ctx, offsetof(struct cs_csx_ctxt, checksum), CS_CRC32C_INITIAL)) {
+	if (src_csx_handle->checksum != spdk_crc32c_update(src_csx_handle, offsetof(struct cs_csx_handle, checksum), CS_CRC32C_INITIAL)) {
 		return CS_INVALID_ARG;
 	}
 
-	struct cs_csx *csx = src_csx_ctx->csx;
-	struct cs_csx_ctxt *csx_ctx = NULL;
-	TAILQ_FOREACH(csx_ctx, &csx->csx_ctxt_list, link) {
-		if (src_csx_ctx == csx_ctx) {
-			assert(csx->num_csx_ctxt > 0);
-			TAILQ_REMOVE(&csx->csx_ctxt_list, csx_ctx, link);
-			csx->num_csx_ctxt--;
+	struct cs_csx *csx = src_csx_handle->csx;
+	struct cs_csx_handle *csx_handle = NULL;
+	TAILQ_FOREACH(csx_handle, &csx->csx_handle_list, link) {
+		if (src_csx_handle == csx_handle) {
+			assert(csx->num_csx_handle > 0);
+			TAILQ_REMOVE(&csx->csx_handle_list, csx_handle, link);
+			csx->num_csx_handle--;
 
-			free(csx_ctx);
+			free(csx_handle);
 			return CS_SUCCESS;	
 		}
 	}
@@ -392,7 +391,6 @@ CS_STATUS csOpenCSE(char *CSEName, void *CSEContext, CS_CSE_HANDLE *CSEHandle)
 	const char* delim = "_"; 
 	char *csx_name = NULL;
 	struct cs_csx *csx = NULL;
-	struct cs_cse *cse = NULL;
 
 	if ((CSEName == NULL) || (CSEHandle == NULL)) {
 		return CS_INVALID_ARG;
@@ -411,25 +409,27 @@ CS_STATUS csOpenCSE(char *CSEName, void *CSEContext, CS_CSE_HANDLE *CSEHandle)
 	}
 
 	// get CSE associated with specific CSx by name
-	TAILQ_FOREACH(cse, &csx->cse_list, link) {
+	for (int i = 0; i < csx->num_cse; i++) {
+		struct cs_cse *cse = &csx->cse_list[i];
+
 		if (strcmp(cse->name, CSEName) == 0) {
-			struct cs_cse_ctxt *cse_ctx;
-			cse_ctx = calloc(1, sizeof(struct cs_cse_ctxt));
-			if (cse_ctx == NULL) {
+			struct cs_cse_handle *cse_handle;
+			cse_handle = calloc(1, sizeof(struct cs_cse_handle));
+			if (cse_handle == NULL) {
 				return CS_NOT_ENOUGH_MEMORY;
 			}
 
-			cse_ctx->cse = cse;
-			cse_ctx->cse_usr_ctxt = CSEContext;
-			cse_ctx->checksum = 
-				spdk_crc32c_update(cse_ctx, offsetof(struct cs_cse_ctxt, checksum), CS_CRC32C_INITIAL);
+			cse_handle->cse = cse;
+			cse_handle->cse_usr_ctx = CSEContext;
+			cse_handle->checksum = 
+				spdk_crc32c_update(cse_handle, offsetof(struct cs_cse_handle, checksum), CS_CRC32C_INITIAL);
 
-			TAILQ_INSERT_TAIL(&cse->cse_ctxt_list, cse_ctx, link);
-			cse->num_cse_ctxt++;
+			TAILQ_INSERT_TAIL(&cse->cse_handle_list, cse_handle, link);
+			cse->num_cse_handle++;
 			
-			*CSEHandle = (CS_CSE_HANDLE)cse_ctx;
+			*CSEHandle = (CS_CSE_HANDLE)cse_handle;
 
-			return CS_SUCCESS;			
+			return CS_SUCCESS;
 		}
 	}
 
@@ -444,20 +444,20 @@ CS_STATUS csOpenCSE(char *CSEName, void *CSEContext, CS_CSE_HANDLE *CSEHandle)
  */
 CS_STATUS csCloseCSE(CS_CSE_HANDLE CSEHandle)
 {
-	struct cs_cse_ctxt *src_cse_ctx = (struct cs_cse_ctxt *)CSEHandle;
+	struct cs_cse_handle *src_cse_handle = (struct cs_cse_handle *)CSEHandle;
 
-	if (src_cse_ctx->checksum != spdk_crc32c_update(src_cse_ctx, offsetof(struct cs_cse_ctxt, checksum), CS_CRC32C_INITIAL)) {
+	if (src_cse_handle->checksum != spdk_crc32c_update(src_cse_handle, offsetof(struct cs_cse_handle, checksum), CS_CRC32C_INITIAL)) {
 		return CS_INVALID_ARG;
 	}
 
-	struct cs_cse *cse = src_cse_ctx->cse;
-	struct cs_cse_ctxt *cse_ctx = NULL;
-	TAILQ_FOREACH(cse_ctx, &cse->cse_ctxt_list, link) {
-		if (src_cse_ctx == cse_ctx) {
-			assert(cse->num_cse_ctxt > 0);
-			TAILQ_REMOVE(&cse->cse_ctxt_list, cse_ctx, link);
-			cse->num_cse_ctxt--;
-			free(cse_ctx);
+	struct cs_cse *cse = src_cse_handle->cse;
+	struct cs_cse_handle *cse_handle = NULL;
+	TAILQ_FOREACH(cse_handle, &cse->cse_handle_list, link) {
+		if (src_cse_handle == cse_handle) {
+			assert(cse->num_cse_handle > 0);
+			TAILQ_REMOVE(&cse->cse_handle_list, cse_handle, link);
+			cse->num_cse_handle--;
+			free(cse_handle);
 
 			return CS_SUCCESS;
 		}
@@ -588,7 +588,94 @@ CS_STATUS csQueueCopyMemRequest(CsCopyMemRequest *CopyReq, void *Context, csQueu
  */
 CS_STATUS csGetFunction(CS_CSE_HANDLE CSEHandle, char *FunctionName, void *Context, CS_FUNCTION_ID *FunctionId)
 {
-	return CS_UNSUPPORTED;
+	struct cs_cse_handle *cse_handle = (struct cs_cse_handle *)CSEHandle;
+	struct cs_cse *cse = cse_handle->cse;
+	struct cs_csx *csx = cse->csx;
+
+	// check for valid CSEHandle
+	if (cse_handle->checksum != spdk_crc32c_update(cse_handle, offsetof(struct cs_cse_handle, checksum), CS_CRC32C_INITIAL)) {
+		return CS_INVALID_ARG;
+	}
+
+	// check for valid function in csx
+	struct cs_func *func = NULL;	
+	for (int i = 0; i < csx->num_func; i++) {
+		if (strcmp(csx->func_list[i].func_name, FunctionName) == 0) {
+			func = &csx->func_list[i];
+			break;
+		}
+	}
+
+	if (func == NULL) {
+		return CS_INVALID_FUNCTION_NAME;
+	} else {
+		*FunctionId = func->pid;
+	}
+
+	// check for cse in associated cse list of specific function
+	bool is_assoc_cse = false;
+	for (int i = 0; i < func->num_assoc_cse; i++) {
+		struct cs_cse *asoc_cse = func->assoc_cse_list[i];
+		if (asoc_cse == cse) {
+			is_assoc_cse = true;
+			break;	
+		}
+	}
+
+	if (is_assoc_cse == false) {
+		return CS_INVALID_HANDLE;
+	}
+
+	// check if request function is activated in cse
+	struct cs_cse_act_func *cse_act_func = NULL;
+	TAILQ_FOREACH(cse_act_func, &cse->cse_act_func_list, link) {
+		if (cse_act_func->func == func) {
+			// TP4091 -- A command that attempts to activate
+			// a program/Compute Engine pair that is already
+			// activated will return success.
+
+			// TODO: how to process usr Context input ??
+			return CS_SUCCESS;
+		}
+	}
+
+	// create cs_cse_act_func object
+	cse_act_func = calloc(1, sizeof(struct cs_cse_act_func));
+	if (cse_act_func == NULL) {
+		return CS_NOT_ENOUGH_MEMORY;
+	}
+
+	cse_act_func->func = func;
+	cse_act_func->cse = cse;
+	cse_act_func->func_usr_ctx = Context;
+
+	// construct job parameter
+	struct cs_csx_job_parm *job_parm = calloc(1, sizeof(struct cs_csx_job_parm));
+	if (job_parm == NULL) {
+		if (cse_act_func != NULL) {
+			free(cse_act_func);
+		}
+		return CS_NOT_ENOUGH_MEMORY;
+	}
+
+	job_parm->u.prog_act_mgmt.cse_act_func = cse_act_func;
+	job_parm->u.prog_act_mgmt.activate = 1;
+	job_parm->u.prog_act_mgmt.cse_handle = cse_handle;
+	job_parm->job_cplt_cb = csGetFunctionCompleteCb;
+
+	// send activate program job
+	cse_handle->num_issued_cmd++;
+	int rc = spdk_thread_send_msg(csx->thread, cs_csx_job_prog_act_mgmt, job_parm);
+	if (rc != 0) {
+		SPDK_ERRLOG("spdk_thread_send_msg fail:csx:%s\n", spdk_bdev_get_name(csx->bdev));
+		csGetFunctionCompleteCb(job_parm, false);
+		return CS_FATAL_ERROR;
+	}
+
+	// wait activate program done
+	while (cse_handle->num_issued_cmd > 0);
+
+	return CS_SUCCESS;	
 }
 
 /**
@@ -1006,8 +1093,8 @@ CS_STATUS csIsDevReady(void)
 /* {C code body of each LOCAL function routines.}         */
 /*                                                        */
 /**********************************************************/
-
-CS_STATUS cs_output_ctxt_and_len(void *dst_buf, unsigned int *buf_len, void *src)
+static
+CS_STATUS csOutputCtxAndLen(void *dst_buf, unsigned int *buf_len, void *src)
 {
 	int out_buf_size = (strlen(src) + 1);
 
@@ -1029,5 +1116,24 @@ CS_STATUS cs_output_ctxt_and_len(void *dst_buf, unsigned int *buf_len, void *src
 	}
 
 	return CS_SUCCESS;
+}
+
+static
+void csGetFunctionCompleteCb(void *ctx, bool success)
+{	
+	struct cs_csx_job_parm *job_parm = (struct cs_csx_job_parm *)ctx;
+	struct cs_cse_act_func *cse_act_func = job_parm->u.prog_act_mgmt.cse_act_func;
+	struct cs_cse *cse = cse_act_func->cse;
+
+	if (success) {
+		TAILQ_INSERT_TAIL(&cse->cse_act_func_list, cse_act_func, link);
+	} else {
+		free(cse_act_func);
+	}
+
+	assert(job_parm->u.prog_act_mgmt.cse_handle->num_issued_cmd > 0);
+	job_parm->u.prog_act_mgmt.cse_handle->num_issued_cmd--;
+
+	free(job_parm);
 }
 /* End of CS_C */

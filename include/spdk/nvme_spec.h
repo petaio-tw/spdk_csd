@@ -1180,6 +1180,17 @@ union spdk_nvme_cmd_cdw10 {
 		uint32_t rtype     : 8;
 		uint32_t reserved2 : 16;
 	} resv_acquire;
+
+	//----------------------------------------------------------------------
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+	struct {
+		/* Program Identifier */
+		uint32_t pid      : 16;
+		/* Compute Engine Identifier */
+		uint32_t ceid     : 16;
+	} prog_act_mgmt;
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+	//----------------------------------------------------------------------	
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw10) == 4, "Incorrect size");
 
@@ -1261,6 +1272,16 @@ union spdk_nvme_cmd_cdw11 {
 		uint32_t ad       : 1;
 		uint32_t reserved : 29;
 	} dsm;
+
+	//----------------------------------------------------------------------
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
+	struct {
+		/* Action */
+		uint32_t activate : 1;
+		uint32_t reserved : 31;
+	} prog_act_mgmt;
+	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] End
+	//----------------------------------------------------------------------	
 };
 SPDK_STATIC_ASSERT(sizeof(union spdk_nvme_cmd_cdw11) == 4, "Incorrect size");
 
@@ -1607,7 +1628,7 @@ enum spdk_nvme_admin_opcode {
 
 	//----------------------------------------------------------------------
 	//[NVMe - TP 4091 Computational Programs 2021.12.01 - Phase 2] Begin
-	SPDK_NVME_OPC_PROGRAM_ACTIVATION		= 0x20,
+	SPDK_NVME_OPC_PROGRAM_ACTIVATION_MANAGEMENT	= 0x20,
 	SPDK_NVME_OPC_LOAD_PROGRAM			= 0x23,
 	SPDK_NVME_OPC_CREATE_MEMORY_RANGE_SET		= 0x24,
 	SPDK_NVME_OPC_DELETE_MEMORY_RANGE_SET		= 0x26,	

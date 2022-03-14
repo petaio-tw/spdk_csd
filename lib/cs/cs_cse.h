@@ -18,7 +18,6 @@
 /************************************************************/
 #include "spdk/env.h"
 #include "spdk/nvme_spec.h"
-#include "cs_csx.h"
 
 /************************************************************/
 /*                                                          */
@@ -40,26 +39,6 @@
 /* {DATA TYPE defines for other components reference.}      */
 /*                                                          */
 /************************************************************/
-struct cs_cse_ctxt {
-	struct cs_cse *cse;
-	void *cse_usr_ctxt;
-	uint32_t checksum;	// make sure above fields are const context
-
-	TAILQ_ENTRY(cs_cse_ctxt) link;
-} __attribute__((packed));
-
-struct cs_cse {
-	spdk_nvme_ceid_t nvme_ceid;
-	struct cs_csx *csx;
-	char name[NAME_MAX];			
-	int max_actived_prog;
-	int cur_actived_prog;
-
-	TAILQ_HEAD(, cs_cse_ctxt) cse_ctxt_list;
-	int num_cse_ctxt;
-
-	TAILQ_ENTRY(cs_cse) link;
-};
 
 /************************************************************/
 /*                                                          */ 

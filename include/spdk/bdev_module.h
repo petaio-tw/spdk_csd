@@ -634,11 +634,22 @@ struct spdk_bdev_io {
 
 			union {
 				struct {
-					/** Log Page Identifier */
+					/* Log Page Identifier */
 					uint8_t lid;
+					/* Log Specific Identifier */
+					uint16_t lsid;					
 					/* The number of bytes to transfer */
 					size_t nbytes;
 				} log_page;
+
+				struct {
+					/* Program Identifier */
+					uint16_t pid;
+					/* Compute Engine Identifier */
+					uint16_t ceid;
+					/* Action */
+					uint8_t activate;
+				} prog_act_mgmt;
 			} cs;
 		} bdev;
 		struct {

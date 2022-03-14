@@ -142,11 +142,11 @@ enum spdk_bdev_io_type {
 	SPDK_BDEV_IO_TYPE_COMPARE_AND_WRITE,
 	SPDK_BDEV_IO_TYPE_ABORT,
 	SPDK_BDEV_IO_TYPE_CS_GET_LOG_PAGE,
-	SPDK_BDEV_IO_TYPE_CS_LOAD_PRG,
-	SPDK_BDEV_IO_TYPE_CS_ACTIVATE_PRG,
+	SPDK_BDEV_IO_TYPE_CS_LOAD_PROG,
+	SPDK_BDEV_IO_TYPE_CS_PROG_ACT_MGMT,
 	SPDK_BDEV_IO_TYPE_CS_CREATE_MEM_RS,
 	SPDK_BDEV_IO_TYPE_CS_DELETE_MEM_RS,
-	SPDK_BDEV_IO_TYOE_CS_EXECUTE_PRG,
+	SPDK_BDEV_IO_TYOE_CS_EXECUTE_PROG,
 	SPDK_BDEV_IO_TYPE_CS_READ_CMR,
 	SPDK_BDEV_IO_TYPE_CS_WRITE_CMR,
 	SPDK_BDEV_NUM_IO_TYPES /* Keep last */
@@ -1739,11 +1739,34 @@ void spdk_bdev_get_device_stat(struct spdk_bdev *bdev, struct spdk_bdev_io_stat 
 void spdk_bdev_io_get_nvme_status(const struct spdk_bdev_io *bdev_io, uint32_t *cdw0, int *sct,
 				  int *sc);
 /**
+ * CS program activation management command to virtio bdev
+ * 
+ * \param desc Block device descriptor. 
+ * \param ch I/O channel. Obtained by calling spdk_bdev_get_io_channel().
+ * \param pid Program Identifier
+ * \param ceid Compute Engine Identifier
+ * \param activate activate/de-activate program
+ * \param cb Called when the request is complete.
+ * \param cb_arg Argument passed to cb.
+ * 
+ * \return 0 on success. On success, the callback will always
+ * be called (even if the request ultimately failed). Return
+ * negated errno on failure, in which case the callback will not be called.
+ *   * -ENOTSUP - the bdev does not support abort
+ *   * -ENOMEM - spdk_bdev_io buffer cannot be allocated
+ */
+int
+spdk_bdev_cs_prog_act_mgmt(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
+		 	   uint16_t pid, uint16_t ceid, bool activate,
+			   spdk_bdev_io_completion_cb cb, void *cb_arg);
+
+/**
  * Get CS related log page from virtio bdev
  * 
  * \param desc Block device descriptor.
  * \param ch I/O channel. Obtained by calling spdk_bdev_get_io_channel().
  * \param lid log page identifier
+ * \param lsip log specific identifier
  * \param buf buffer for log page content
  * \param nbytes buffer size in bytes
  * \param cb Called when the request is complete.
@@ -1757,7 +1780,7 @@ void spdk_bdev_io_get_nvme_status(const struct spdk_bdev_io *bdev_io, uint32_t *
  */
 int
 spdk_bdev_cs_get_log_page(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
-			  uint8_t lid, void *buf, size_t nbytes,
+			  uint8_t lid, uint16_t lsid, void *buf, size_t nbytes,
 			  spdk_bdev_io_completion_cb cb, void *cb_arg);
 
 /**
