@@ -68,7 +68,7 @@
             "name": "csx0",
             "dev_type": "scsi",
             "trtype": "user",
-            "traddr": "/home/alexhsu/Codebase/spdk_csd/cs_dev/vhost_scsi_csx0",
+            "traddr": "/tmp/cs_dev/vhost_scsi_csx0",
             "vq_count": 1,
             "vq_size": 512
           }
